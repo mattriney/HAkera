@@ -1,0 +1,892 @@
+"""Async Makera Z1 protocol client.
+
+The protocol implementation mirrors the local Node.js proof-of-concept client
+that was built from Makera Studio packet captures and live Z1 testing.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from contextlib import suppress
+from dataclasses import dataclass, replace
+import ipaddress
+import math
+import re
+from typing import Any, Final
+
+CONTROL_PORT: Final = 2222
+CAMERA_PORT: Final = 82
+
+PACKET_HEADER: Final = b"\x86\x68"
+PACKET_TRAILER: Final = b"\x55\xaa"
+PACKET_TYPE_REALTIME: Final = 0xA1
+PACKET_TYPE_COMMAND: Final = 0xA2
+REALTIME_STATUS: Final = 0x3F
+
+IDENTITY_COMMANDS: Final = ("sn-get", "model", "version", "ftype")
+POLL_COMMANDS: Final = ("diagnose", "M957")
+
+HOST_RE: Final = re.compile(
+    r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*"
+    r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+    re.IGNORECASE,
+)
+NUMBER_RE: Final = r"([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)"
+
+
+class MakeraZ1Error(Exception):
+    """Base Makera Z1 exception."""
+
+
+class MakeraZ1ConnectionError(MakeraZ1Error):
+    """Raised when the Z1 cannot be reached."""
+
+
+class MakeraZ1ResponseError(MakeraZ1Error):
+    """Raised when the Z1 returns an unexpected response."""
+
+
+class MakeraZ1CameraBusy(MakeraZ1Error):
+    """Raised when the firmware camera channel is occupied."""
+
+
+@dataclass(frozen=True, slots=True)
+class MachineStatus:
+    """Angle-bracketed machine status packet."""
+
+    raw: str
+    state: str
+    machine_position: tuple[float | None, ...] | None = None
+    work_position: tuple[float | None, ...] | None = None
+    feed: tuple[float | None, ...] | None = None
+    spindle: tuple[float | None, ...] | None = None
+    tool: tuple[float | None, ...] | None = None
+    accessory: int | None = None
+    override: float | None = None
+    homing: int | None = None
+    counters: tuple[int | None, ...] | None = None
+    fields: dict[str, str | bool] | None = None
+
+    def as_diagnostics(self) -> dict[str, Any]:
+        """Return diagnostics-safe status data."""
+        return {
+            "raw": self.raw,
+            "state": self.state,
+            "machine_position": self.machine_position,
+            "work_position": self.work_position,
+            "feed": self.feed,
+            "spindle": self.spindle,
+            "tool": self.tool,
+            "accessory": self.accessory,
+            "override": self.override,
+            "homing": self.homing,
+            "counters": self.counters,
+            "fields": self.fields,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class DiagnosticStatus:
+    """Brace-delimited diagnostic packet."""
+
+    raw: str
+    fields: dict[str, str]
+    values: dict[str, tuple[float | None, ...]]
+
+    def as_diagnostics(self) -> dict[str, Any]:
+        """Return diagnostics-safe diagnostic data."""
+        return {
+            "raw": self.raw,
+            "fields": self.fields,
+            "values": self.values,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class DiagnosticField:
+    """Mapped Z1 diagnostic field."""
+
+    label: str
+    kind: str
+    unit: str | None
+    known: bool
+    value: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class ControllerIdentity:
+    """Read-only controller identity."""
+
+    serial: str | None = None
+    model: str | None = None
+    firmware_version: str | None = None
+    filesystem_type: str | None = None
+
+    def as_diagnostics(self) -> dict[str, Any]:
+        """Return diagnostics data; serial is redacted by diagnostics.py."""
+        return {
+            "serial": self.serial,
+            "model": self.model,
+            "firmware_version": self.firmware_version,
+            "filesystem_type": self.filesystem_type,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SpindleReport:
+    """Read-only spindle report from M957."""
+
+    state: str | None = None
+    current_rpm: float | None = None
+    target_rpm: float | None = None
+    pwm_value: float | None = None
+    analog_value: float | None = None
+
+    def as_diagnostics(self) -> dict[str, Any]:
+        """Return diagnostics-safe spindle data."""
+        return {
+            "state": self.state,
+            "current_rpm": self.current_rpm,
+            "target_rpm": self.target_rpm,
+            "pwm_value": self.pwm_value,
+            "analog_value": self.analog_value,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class MakeraZ1Snapshot:
+    """One read-only Makera Z1 poll result."""
+
+    status: MachineStatus
+    diagnostic: DiagnosticStatus | None
+    diagnostic_fields: dict[str, DiagnosticField]
+    identity: ControllerIdentity
+    spindle_report: SpindleReport
+
+    def as_diagnostics(self) -> dict[str, Any]:
+        """Return diagnostics-safe snapshot data."""
+        return {
+            "status": self.status.as_diagnostics(),
+            "diagnostic": self.diagnostic.as_diagnostics()
+            if self.diagnostic
+            else None,
+            "diagnostic_fields": {
+                key: {
+                    "label": value.label,
+                    "kind": value.kind,
+                    "unit": value.unit,
+                    "known": value.known,
+                    "value": value.value,
+                }
+                for key, value in self.diagnostic_fields.items()
+            },
+            "identity": self.identity.as_diagnostics(),
+            "spindle_report": self.spindle_report.as_diagnostics(),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class _PacketMessage:
+    kind: str
+    packet_type: int | None = None
+    payload: bytes = b""
+    raw: bytes = b""
+    reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _StreamMessage:
+    kind: str
+    value: Any
+
+
+@dataclass(frozen=True, slots=True)
+class _DiagnosticFieldDefinition:
+    label: str
+    field: str
+    index: int
+    kind: str
+    unit: str | None = None
+
+
+Z1_DIAGNOSTIC_FIELDS: Final[dict[str, _DiagnosticFieldDefinition]] = {
+    "xPositiveLimit": _DiagnosticFieldDefinition("X+ limit", "E", 1, "switch"),
+    "yPositiveLimit": _DiagnosticFieldDefinition("Y+ limit", "E", 3, "switch"),
+    "zPositiveLimit": _DiagnosticFieldDefinition("Z+ limit", "E", 4, "switch"),
+    "aPositiveLimit": _DiagnosticFieldDefinition("A+ limit", "E", 6, "switch"),
+    "probe": _DiagnosticFieldDefinition("Probe", "P", 0, "switch"),
+    "toolSetter": _DiagnosticFieldDefinition("Tool setter", "P", 1, "switch"),
+    "emergencyStop": _DiagnosticFieldDefinition("E-stop", "I", 0, "switch"),
+    "cover": _DiagnosticFieldDefinition("Cover", "E", 5, "switch"),
+    "workLight": _DiagnosticFieldDefinition("Work light", "G", 0, "switch"),
+    "externalInput": _DiagnosticFieldDefinition("External input", "G", 2, "switch"),
+    "spindleTemperature": _DiagnosticFieldDefinition(
+        "Spindle temp", "S", 4, "number", "C"
+    ),
+    "powerTemperature": _DiagnosticFieldDefinition(
+        "Power temp", "S", 5, "number", "C"
+    ),
+    "rssi": _DiagnosticFieldDefinition("WiFi signal", "RSSI", 0, "number", "dBm"),
+}
+
+
+class MakeraZ1Client:
+    """Small async client for read-only Makera Z1 monitoring."""
+
+    def __init__(
+        self,
+        host: str,
+        *,
+        session: Any | None = None,
+        control_port: int = CONTROL_PORT,
+        camera_port: int = CAMERA_PORT,
+        connect_timeout: float = 5.0,
+        response_timeout: float = 2.5,
+        camera_timeout: float = 6.0,
+    ) -> None:
+        """Initialize the client."""
+        self.host = normalize_host(host)
+        self.session = session
+        self.control_port = control_port
+        self.camera_port = camera_port
+        self.connect_timeout = connect_timeout
+        self.response_timeout = response_timeout
+        self.camera_timeout = camera_timeout
+        self._identity = ControllerIdentity()
+        self._spindle_report = SpindleReport()
+
+    async def async_fetch_snapshot(
+        self,
+        *,
+        include_identity: bool | None = None,
+    ) -> MakeraZ1Snapshot:
+        """Fetch one read-only status snapshot from the control socket."""
+        if include_identity is None:
+            include_identity = self._identity.serial is None
+
+        packets = [
+            build_control_packet(PACKET_TYPE_REALTIME, bytes([REALTIME_STATUS])),
+            *(
+                build_control_packet(PACKET_TYPE_COMMAND, sanitize_command(command))
+                for command in POLL_COMMANDS
+            ),
+        ]
+        if include_identity:
+            packets.extend(
+                build_control_packet(PACKET_TYPE_COMMAND, sanitize_command(command))
+                for command in IDENTITY_COMMANDS
+            )
+
+        packet_parser = ControlPacketParser()
+        stream_parser = MachineStreamParser()
+        identity = self._identity
+        spindle_report = SpindleReport()
+        status: MachineStatus | None = None
+        diagnostic: DiagnosticStatus | None = None
+
+        writer: asyncio.StreamWriter | None = None
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(self.host, self.control_port),
+                timeout=self.connect_timeout,
+            )
+
+            for packet in packets:
+                writer.write(packet)
+            await writer.drain()
+
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + self.response_timeout
+            while loop.time() < deadline:
+                timeout = max(0.05, deadline - loop.time())
+                try:
+                    chunk = await asyncio.wait_for(reader.read(4096), timeout=timeout)
+                except TimeoutError:
+                    break
+
+                if not chunk:
+                    break
+
+                for packet_message in packet_parser.push(chunk):
+                    if packet_message.kind == "error":
+                        raise MakeraZ1ResponseError(
+                            packet_message.reason or "Invalid control packet."
+                        )
+                    if packet_message.kind != "packet":
+                        continue
+
+                    messages = [
+                        *stream_parser.push(packet_message.payload),
+                        *stream_parser.finish_message(),
+                    ]
+                    for message in messages:
+                        if message.kind == "status":
+                            status = message.value
+                        elif message.kind == "diagnostic":
+                            diagnostic = message.value
+                        elif message.kind == "line":
+                            info = parse_controller_info_line(message.value)
+                            if info:
+                                identity = _update_identity(identity, *info)
+                                continue
+                            spindle = parse_spindle_report_line(message.value)
+                            if spindle:
+                                spindle_report = _update_spindle(
+                                    spindle_report, spindle
+                                )
+
+                if (
+                    status
+                    and diagnostic
+                    and (not include_identity or identity.serial)
+                    and _spindle_has_data(spindle_report)
+                ):
+                    break
+
+        except MakeraZ1Error:
+            raise
+        except (OSError, TimeoutError, asyncio.TimeoutError) as err:
+            raise MakeraZ1ConnectionError(
+                f"Could not connect to {self.host}:{self.control_port}."
+            ) from err
+        finally:
+            if writer is not None:
+                writer.close()
+                with suppress(Exception):
+                    await writer.wait_closed()
+
+        if status is None:
+            raise MakeraZ1ResponseError("The controller did not return a status packet.")
+
+        self._identity = identity
+        self._spindle_report = spindle_report
+        return MakeraZ1Snapshot(
+            status=status,
+            diagnostic=diagnostic,
+            diagnostic_fields=map_diagnostic_fields(diagnostic),
+            identity=identity,
+            spindle_report=spindle_report,
+        )
+
+    async def async_get_camera_image(self) -> bytes:
+        """Open the camera WebSocket, return one JPEG frame, then close it."""
+        if self.session is None:
+            raise MakeraZ1ConnectionError("No HTTP client session is available.")
+
+        from aiohttp import ClientError, WSMsgType
+
+        url = f"ws://{self.host}:{self.camera_port}/ws_video"
+        websocket = None
+        try:
+            websocket = await self.session.ws_connect(url, heartbeat=10)
+            await websocket.send_str("start_stream")
+
+            while True:
+                message = await websocket.receive(timeout=self.camera_timeout)
+                if message.type == WSMsgType.BINARY:
+                    frame = bytes(message.data)
+                    if not is_jpeg(frame):
+                        raise MakeraZ1ResponseError("Camera returned a non-JPEG frame.")
+                    return frame
+
+                if message.type == WSMsgType.TEXT:
+                    text = str(message.data)
+                    if "occupied" in text.lower():
+                        raise MakeraZ1CameraBusy(text)
+                    continue
+
+                if message.type in {
+                    WSMsgType.CLOSE,
+                    WSMsgType.CLOSED,
+                    WSMsgType.CLOSING,
+                    WSMsgType.ERROR,
+                }:
+                    raise MakeraZ1ConnectionError("Camera WebSocket closed.")
+
+        except MakeraZ1Error:
+            raise
+        except (ClientError, TimeoutError, asyncio.TimeoutError) as err:
+            raise MakeraZ1ConnectionError(f"Could not read camera image from {url}.") from err
+        finally:
+            if websocket is not None and not websocket.closed:
+                with suppress(Exception):
+                    await websocket.send_str("stop_stream")
+                with suppress(Exception):
+                    await websocket.close()
+
+    async def async_close(self) -> None:
+        """Close any persistent resources."""
+        return None
+
+
+class ControlPacketParser:
+    """Parser for framed Makera control packets."""
+
+    def __init__(self) -> None:
+        """Initialize the parser."""
+        self._buffer = b""
+
+    def push(self, chunk: bytes) -> list[_PacketMessage]:
+        """Push bytes into the parser and return complete packet messages."""
+        self._buffer += bytes(chunk)
+        messages: list[_PacketMessage] = []
+
+        while self._buffer:
+            header_index = self._buffer.find(PACKET_HEADER)
+            if header_index < 0:
+                keep = self._buffer.endswith(PACKET_HEADER[:1])
+                discarded = self._buffer[:-1] if keep else self._buffer
+                if discarded:
+                    messages.append(_PacketMessage(kind="discarded", raw=discarded))
+                self._buffer = self._buffer[-1:] if keep else b""
+                break
+
+            if header_index > 0:
+                messages.append(
+                    _PacketMessage(kind="discarded", raw=self._buffer[:header_index])
+                )
+                self._buffer = self._buffer[header_index:]
+
+            if len(self._buffer) < 6:
+                break
+
+            length = int.from_bytes(self._buffer[2:4], "big")
+            if length < 3:
+                messages.append(
+                    _PacketMessage(
+                        kind="error",
+                        reason=f"Invalid control packet length {length}.",
+                    )
+                )
+                self._buffer = self._buffer[2:]
+                continue
+
+            total_length = length + 6
+            if len(self._buffer) < total_length:
+                break
+
+            packet = self._buffer[:total_length]
+            self._buffer = self._buffer[total_length:]
+
+            if packet[-2:] != PACKET_TRAILER:
+                messages.append(
+                    _PacketMessage(
+                        kind="error",
+                        reason="Invalid control packet trailer.",
+                    )
+                )
+                continue
+
+            crc_offset = length + 2
+            expected_crc = int.from_bytes(packet[crc_offset : crc_offset + 2], "big")
+            actual_crc = crc16_xmodem(packet[2:crc_offset])
+            if actual_crc != expected_crc:
+                messages.append(
+                    _PacketMessage(
+                        kind="error",
+                        reason=(
+                            "Control packet CRC mismatch "
+                            f"(expected 0x{expected_crc:04x}, "
+                            f"calculated 0x{actual_crc:04x})."
+                        ),
+                    )
+                )
+                continue
+
+            messages.append(
+                _PacketMessage(
+                    kind="packet",
+                    packet_type=packet[4],
+                    payload=packet[5:crc_offset],
+                    raw=packet,
+                )
+            )
+
+        return messages
+
+    def reset(self) -> None:
+        """Reset buffered parser state."""
+        self._buffer = b""
+
+
+class MachineStreamParser:
+    """Parser for text records inside control packets."""
+
+    def __init__(self) -> None:
+        """Initialize the parser."""
+        self._buffer = ""
+
+    def push(self, chunk: bytes | str) -> list[_StreamMessage]:
+        """Push payload bytes and return parsed stream messages."""
+        if isinstance(chunk, bytes):
+            self._buffer += chunk.decode("utf-8", "replace")
+        else:
+            self._buffer += str(chunk)
+
+        messages: list[_StreamMessage] = []
+
+        while self._buffer:
+            status_start = self._buffer.find("<")
+            diagnostic_start = self._buffer.find("{")
+            frame_starts = [
+                index for index in (status_start, diagnostic_start) if index >= 0
+            ]
+            frame_start = min(frame_starts) if frame_starts else -1
+            newline_match = re.search(r"[\r\n]", self._buffer)
+            newline = newline_match.start() if newline_match else -1
+
+            if frame_start >= 0 and (newline < 0 or frame_start < newline):
+                if frame_start > 0:
+                    prefix = self._buffer[:frame_start].strip()
+                    if prefix:
+                        messages.append(_StreamMessage("line", prefix))
+                    self._buffer = self._buffer[frame_start:]
+
+                is_diagnostic = self._buffer.startswith("{")
+                end_marker = "}" if is_diagnostic else ">"
+                frame_end = self._buffer.find(end_marker)
+                if frame_end < 0:
+                    break
+
+                packet = self._buffer[: frame_end + 1]
+                self._buffer = self._buffer[frame_end + 1 :].lstrip("\r\n")
+                messages.append(
+                    _StreamMessage(
+                        "diagnostic" if is_diagnostic else "status",
+                        parse_diagnostic_packet(packet)
+                        if is_diagnostic
+                        else parse_status_packet(packet),
+                    )
+                )
+                continue
+
+            if newline >= 0:
+                line = self._buffer[:newline].strip()
+                self._buffer = self._buffer[newline + 1 :].lstrip("\n")
+                if line:
+                    messages.append(_StreamMessage("line", line))
+                continue
+
+            if len(self._buffer) > 64 * 1024:
+                messages.append(_StreamMessage("line", self._buffer[: 64 * 1024]))
+                self._buffer = self._buffer[64 * 1024 :]
+            break
+
+        return messages
+
+    def finish_message(self) -> list[_StreamMessage]:
+        """Flush a complete final message from the parser."""
+        value = self._buffer.strip()
+        if (
+            not value
+            or (value.startswith("<") and not value.endswith(">"))
+            or (value.startswith("{") and not value.endswith("}"))
+        ):
+            return []
+
+        self._buffer = ""
+        if value.startswith("{") and value.endswith("}"):
+            return [_StreamMessage("diagnostic", parse_diagnostic_packet(value))]
+        if value.startswith("<") and value.endswith(">"):
+            return [_StreamMessage("status", parse_status_packet(value))]
+        return [_StreamMessage("line", value)]
+
+    def reset(self) -> None:
+        """Reset buffered parser state."""
+        self._buffer = ""
+
+
+def normalize_host(host: str) -> str:
+    """Normalize and validate a Z1 host."""
+    normalized = str(host or "").strip()
+    if not normalized:
+        raise ValueError("Host is required.")
+    if ":" in normalized:
+        raise ValueError("Enter the Z1 address without a port.")
+
+    with suppress(ValueError):
+        address = ipaddress.ip_address(normalized)
+        if address.version == 4:
+            return normalized
+        raise ValueError("Only IPv4 addresses are supported.")
+
+    if not HOST_RE.match(normalized):
+        raise ValueError("Host is not a valid IPv4 address or host name.")
+    return normalized.lower()
+
+
+def sanitize_command(command: str) -> bytes:
+    """Validate a printable single-line command and return ASCII bytes."""
+    value = str(command or "").strip()
+    if not value:
+        raise ValueError("Machine command is empty.")
+    if any(char in value for char in "\r\n\0"):
+        raise ValueError("Machine command must contain one line.")
+    try:
+        data = value.encode("ascii")
+    except UnicodeEncodeError as err:
+        raise ValueError("Machine command must use printable ASCII.") from err
+    if any(byte < 0x20 or byte > 0x7E for byte in data):
+        raise ValueError("Machine command must use printable ASCII.")
+    return data
+
+
+def build_control_packet(packet_type: int, payload: bytes = b"") -> bytes:
+    """Build a Makera control packet."""
+    if packet_type < 0 or packet_type > 0xFF:
+        raise ValueError("Packet type must be one byte.")
+    if len(payload) > 0xFFFC:
+        raise ValueError("Packet payload is too large.")
+
+    length = len(payload) + 3
+    core = length.to_bytes(2, "big") + bytes([packet_type]) + payload
+    crc = crc16_xmodem(core)
+    return PACKET_HEADER + core + crc.to_bytes(2, "big") + PACKET_TRAILER
+
+
+def crc16_xmodem(data: bytes) -> int:
+    """Return CRC-16/XMODEM for bytes."""
+    crc = 0
+    for byte in data:
+        crc ^= byte << 8
+        for _ in range(8):
+            if crc & 0x8000:
+                crc = ((crc << 1) ^ 0x1021) & 0xFFFF
+            else:
+                crc = (crc << 1) & 0xFFFF
+    return crc
+
+
+def parse_status_packet(packet: str) -> MachineStatus:
+    """Parse a Z1 angle-bracketed status packet."""
+    raw = str(packet or "").strip()
+    content = raw[1:-1] if raw.startswith("<") and raw.endswith(">") else raw
+    fields = content.split("|")
+    state = fields.pop(0) if fields else "Unknown"
+    status_fields: dict[str, str | bool] = {}
+    status = MachineStatus(raw=f"<{content}>", state=state, fields=status_fields)
+
+    for field in fields:
+        separator = field.find(":")
+        if separator < 0:
+            status_fields[field] = True
+            continue
+
+        key = field[:separator]
+        value = field[separator + 1 :]
+        status_fields[key] = value
+
+        if key == "MPos":
+            status = replace(status, machine_position=parse_number_list(value))
+        elif key == "WPos":
+            status = replace(status, work_position=parse_number_list(value))
+        elif key == "F":
+            status = replace(status, feed=parse_number_list(value))
+        elif key == "S":
+            status = replace(status, spindle=parse_number_list(value))
+        elif key == "T":
+            status = replace(status, tool=parse_number_list(value))
+        elif key == "A":
+            status = replace(status, accessory=parse_integer(value))
+        elif key == "O":
+            status = replace(status, override=parse_finite(value))
+        elif key == "H":
+            status = replace(status, homing=parse_integer(value))
+        elif key == "C":
+            status = replace(status, counters=parse_integer_list(value))
+
+    return status
+
+
+def parse_diagnostic_packet(packet: str) -> DiagnosticStatus:
+    """Parse a Z1 brace-delimited diagnostic packet."""
+    raw = str(packet or "").strip()
+    content = raw[1:-1] if raw.startswith("{") and raw.endswith("}") else raw
+    fields: dict[str, str] = {}
+    values: dict[str, tuple[float | None, ...]] = {}
+
+    for field in content.split("|"):
+        separator = field.find(":")
+        if separator < 1:
+            continue
+        key = field[:separator]
+        value = field[separator + 1 :]
+        fields[key] = value
+        values[key] = parse_number_list(value)
+
+    return DiagnosticStatus(raw=f"{{{content}}}", fields=fields, values=values)
+
+
+def map_diagnostic_fields(
+    diagnostic: DiagnosticStatus | None,
+) -> dict[str, DiagnosticField]:
+    """Map diagnostic packet values to named Z1 fields."""
+    mapped: dict[str, DiagnosticField] = {}
+    for field_id, definition in Z1_DIAGNOSTIC_FIELDS.items():
+        value: float | None = None
+        values = diagnostic.values.get(definition.field) if diagnostic else None
+        if values and definition.index < len(values):
+            candidate = values[definition.index]
+            if candidate is not None and math.isfinite(candidate):
+                value = candidate
+        mapped[field_id] = DiagnosticField(
+            label=definition.label,
+            kind=definition.kind,
+            unit=definition.unit,
+            known=value is not None,
+            value=value,
+        )
+    return mapped
+
+
+def parse_controller_info_line(line: str) -> tuple[str, str | int] | None:
+    """Parse controller identity/info lines."""
+    raw = str(line or "").strip()
+    match = re.match(r"^(sn|model|version|ftype|time|sys-time-data)\s*=\s*(.+)$", raw, re.I)
+    if not match:
+        return None
+
+    value = match.group(2).strip()
+    if not value or len(value) > 200 or any(char in value for char in "\r\n\0"):
+        return None
+
+    field = {
+        "sn": "serial",
+        "model": "model",
+        "version": "firmware_version",
+        "ftype": "filesystem_type",
+        "time": "controller_time",
+        "sys-time-data": "system_time",
+    }[match.group(1).lower()]
+
+    if field == "controller_time":
+        if not re.match(r"^\d{1,16}$", value):
+            return None
+        return field, int(value)
+
+    return field, value
+
+
+def parse_spindle_report_line(line: str) -> dict[str, str | float] | None:
+    """Parse read-only spindle diagnostic lines from M957."""
+    raw = str(line or "").strip()
+    if not raw or len(raw) > 240 or any(char in raw for char in "\r\n\0"):
+        return None
+
+    match = re.match(
+        rf"^State:\s*([^,]{{1,40}}),\s*Current RPM:\s*{NUMBER_RE}\s+"
+        rf"Target RPM:\s*{NUMBER_RE}\s+PWM value:\s*{NUMBER_RE}$",
+        raw,
+        re.I,
+    )
+    if match:
+        return _spindle_values(
+            {
+                "state": match.group(1).strip(),
+                "current_rpm": match.group(2),
+                "target_rpm": match.group(3),
+                "pwm_value": match.group(4),
+            }
+        )
+
+    match = re.match(
+        rf"^Current RPM:\s*{NUMBER_RE}\s+Analog value:\s*{NUMBER_RE}\s+"
+        rf"Target RPM:\s*{NUMBER_RE}$",
+        raw,
+        re.I,
+    )
+    if match:
+        return _spindle_values(
+            {
+                "current_rpm": match.group(1),
+                "analog_value": match.group(2),
+                "target_rpm": match.group(3),
+            }
+        )
+
+    match = re.match(rf"^Current RPM:\s*{NUMBER_RE}$", raw, re.I)
+    if match:
+        return _spindle_values({"current_rpm": match.group(1)})
+
+    return None
+
+
+def parse_number_list(value: str) -> tuple[float | None, ...]:
+    """Parse comma-delimited finite numbers."""
+    return tuple(parse_finite(item) for item in value.split(","))
+
+
+def parse_integer_list(value: str) -> tuple[int | None, ...]:
+    """Parse comma-delimited integers."""
+    return tuple(parse_integer(item) for item in value.split(","))
+
+
+def parse_finite(value: str) -> float | None:
+    """Parse a finite float."""
+    try:
+        parsed = float(value)
+    except ValueError:
+        return None
+    return parsed if math.isfinite(parsed) else None
+
+
+def parse_integer(value: str) -> int | None:
+    """Parse an integer."""
+    try:
+        return int(value, 10)
+    except ValueError:
+        return None
+
+
+def is_jpeg(data: bytes) -> bool:
+    """Return whether bytes look like a JPEG."""
+    return len(data) >= 4 and data[0] == 0xFF and data[1] == 0xD8
+
+
+def _update_identity(
+    identity: ControllerIdentity,
+    field: str,
+    value: str | int,
+) -> ControllerIdentity:
+    """Return identity with a parsed field applied."""
+    if field not in {"serial", "model", "firmware_version", "filesystem_type"}:
+        return identity
+    return replace(identity, **{field: str(value)})
+
+
+def _update_spindle(
+    spindle_report: SpindleReport,
+    values: dict[str, str | float],
+) -> SpindleReport:
+    """Return spindle report with parsed values applied."""
+    return replace(spindle_report, **values)
+
+
+def _spindle_has_data(spindle_report: SpindleReport) -> bool:
+    """Return whether M957 data has been observed."""
+    return any(
+        value is not None
+        for value in (
+            spindle_report.state,
+            spindle_report.current_rpm,
+            spindle_report.target_rpm,
+            spindle_report.pwm_value,
+            spindle_report.analog_value,
+        )
+    )
+
+
+def _spindle_values(raw_values: dict[str, str]) -> dict[str, str | float] | None:
+    """Normalize parsed spindle values."""
+    values: dict[str, str | float] = {}
+    for key, value in raw_values.items():
+        if key == "state":
+            if not value or not re.match(r"^[\x20-\x7e]+$", value):
+                return None
+            values[key] = value
+            continue
+        parsed = parse_finite(value)
+        if parsed is None:
+            return None
+        values[key] = parsed
+    return values

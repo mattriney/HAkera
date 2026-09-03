@@ -1,0 +1,48 @@
+{
+  "fixture_version": 1,
+  "firmware": "1.1.2.0.1.13",
+  "raw": {
+    "status": "<Idle|MPos:-1.000,-1.000,-1.000,0.000|WPos:0.000,0.000,0.000,0.000|F:0,0|S:0,10000,100|T:1|L:0|C:1,0|E:0,0,0,0,0,0,1,0|OTA:0>",
+    "diagnostic": "{S:0,10000,0,0,26,23|L:0,0|V:1,31|F:0,0|G:1,0,0,0,0|T:0|C:1|E:0,0,0,0,0,0,1,0|P:0,0|I:0|RSSI:-63}"
+  },
+  "expected": {
+    "machine_state": "Idle",
+    "identity": {
+      "serial": "Z1P012601K012171",
+      "model": "Z1, 4, 1, 0, Idle",
+      "firmware_version": "1.1.2.0.1.13",
+      "filesystem_type": "nc"
+    },
+    "identity_lines": [
+      "sn = Z1P012601K012171",
+      "model = Z1, 4, 1, 0, Idle",
+      "version = 1.1.2.0.1.13",
+      "ftype = nc"
+    ],
+    "spindle_lines": [
+      "State: off, Current RPM:     0  Target RPM: 10000  PWM value: 0.000"
+    ],
+    "spindle_report": {
+      "state": "off",
+      "current_rpm": 0.0,
+      "target_rpm": 10000.0,
+      "pwm_value": 0.0,
+      "analog_value": null
+    },
+    "diagnostic_fields": {
+      "cover": { "known": true, "value": 0.0 },
+      "emergencyStop": { "known": true, "value": 0.0 },
+      "externalInput": { "known": true, "value": 0.0 },
+      "powerTemperature": { "known": true, "value": 23.0 },
+      "probe": { "known": true, "value": 0.0 },
+      "rssi": { "known": true, "value": -63.0 },
+      "spindleTemperature": { "known": true, "value": 26.0 },
+      "toolSetter": { "known": true, "value": 0.0 },
+      "workLight": { "known": true, "value": 1.0 },
+      "xPositiveLimit": { "known": true, "value": 0.0 },
+      "yPositiveLimit": { "known": true, "value": 0.0 },
+      "zPositiveLimit": { "known": true, "value": 0.0 },
+      "aPositiveLimit": { "known": true, "value": 1.0 }
+    }
+  }
+}

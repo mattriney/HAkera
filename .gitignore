@@ -1,0 +1,27 @@
+.coverage
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# Local Home Assistant development state
+.storage/
+home-assistant.log*
+secrets.yaml
+
+# Machine/protocol captures should stay out of the public integration repo.
+captures/
+private-fixtures/
+*.pcap
+*.pcapng
+*.dmp
+*.bin
+*.exe
+*.mp4
+*.webm

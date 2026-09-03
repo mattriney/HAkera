@@ -1,0 +1,65 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Makera Z1",
+        "description": "Enter the LAN host or IP address for the Makera Z1.",
+        "data": {
+          "host": "Host"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not connect to the Makera Z1.",
+      "cannot_identify": "Connected, but the controller did not return a serial number.",
+      "invalid_host": "Enter a valid host name or IPv4 address."
+    },
+    "abort": {
+      "already_configured": "This Makera Z1 is already configured."
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "connected": { "name": "Connected" },
+      "alarm": { "name": "Alarm" },
+      "spindle_running": { "name": "Spindle running" },
+      "lid": { "name": "Lid" },
+      "work_light": { "name": "Work light" },
+      "emergency_stop": { "name": "Emergency stop" },
+      "probe": { "name": "Probe" },
+      "tool_setter": { "name": "Tool setter" },
+      "external_input": { "name": "External input" },
+      "x_positive_limit": { "name": "X positive limit" },
+      "y_positive_limit": { "name": "Y positive limit" },
+      "z_positive_limit": { "name": "Z positive limit" },
+      "a_positive_limit": { "name": "A positive limit" }
+    },
+    "camera": {
+      "live_view": { "name": "Camera" }
+    },
+    "sensor": {
+      "machine_state": { "name": "State" },
+      "firmware_version": { "name": "Firmware version" },
+      "filesystem_type": { "name": "Filesystem type" },
+      "current_tool": { "name": "Current tool" },
+      "feed_rate": { "name": "Feed rate" },
+      "feed_override": { "name": "Feed override" },
+      "spindle_current_rpm": { "name": "Spindle current RPM" },
+      "spindle_target_rpm": { "name": "Spindle target RPM" },
+      "spindle_scale": { "name": "Spindle scale" },
+      "spindle_pwm_value": { "name": "Spindle PWM value" },
+      "spindle_temperature": { "name": "Spindle temperature" },
+      "power_temperature": { "name": "Control-box temperature" },
+      "wifi_signal": { "name": "WiFi signal" },
+      "homing_code": { "name": "Homing code" },
+      "machine_x": { "name": "Machine X" },
+      "machine_y": { "name": "Machine Y" },
+      "machine_z": { "name": "Machine Z" },
+      "machine_a": { "name": "Machine A" },
+      "work_x": { "name": "Work X" },
+      "work_y": { "name": "Work Y" },
+      "work_z": { "name": "Work Z" },
+      "work_a": { "name": "Work A" }
+    }
+  }
+}

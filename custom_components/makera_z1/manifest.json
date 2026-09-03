@@ -1,0 +1,13 @@
+{
+  "domain": "makera_z1",
+  "name": "Makera Z1",
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "https://github.com/your-account/home-assistant-makera-z1",
+  "integration_type": "device",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/your-account/home-assistant-makera-z1/issues",
+  "loggers": ["custom_components.makera_z1"],
+  "requirements": [],
+  "version": "0.1.0"
+}

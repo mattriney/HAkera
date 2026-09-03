@@ -1,0 +1,7 @@
+{
+  "name": "Makera Z1",
+  "render_readme": true,
+  "domains": ["binary_sensor", "camera", "sensor"],
+  "iot_class": "Local Polling",
+  "homeassistant": "2026.6.0"
+}
