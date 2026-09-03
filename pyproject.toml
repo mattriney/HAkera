@@ -1,6 +1,6 @@
 [project]
 name = "home-assistant-makera-z1"
-version = "0.3.0"
+version = "0.3.1"
 description = "Home Assistant integration for Makera Z1 / Z1 Pro monitoring and accessory control"
 readme = "README.md"
 requires-python = ">=3.14.2"

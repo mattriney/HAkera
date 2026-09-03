@@ -34,6 +34,10 @@ HOST_RE: Final = re.compile(
     re.IGNORECASE,
 )
 NUMBER_RE: Final = r"([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)"
+SOFT_ENDSTOP_RE: Final = re.compile(
+    r"soft\s+endstop\s+([xyza])\s+was\s+exceeded", re.IGNORECASE
+)
+HARD_LIMIT_RE: Final = re.compile(r"hard\s+limit\s+([xyza])([+-])", re.IGNORECASE)
 
 
 class MakeraZ1Error(Exception):
@@ -50,6 +54,25 @@ class MakeraZ1ResponseError(MakeraZ1Error):
 
 class MakeraZ1CameraBusyError(MakeraZ1Error):
     """Raised when the firmware camera channel is occupied."""
+
+
+@dataclass(frozen=True, slots=True)
+class ControllerAlert:
+    """One parsed controller alarm or safety message."""
+
+    message: str
+    kind: str
+    axis: str | None = None
+    direction: str | None = None
+
+    def as_diagnostics(self) -> dict[str, str | None]:
+        """Return diagnostics-safe alert data."""
+        return {
+            "message": self.message,
+            "kind": self.kind,
+            "axis": self.axis,
+            "direction": self.direction,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -268,6 +291,7 @@ class MakeraZ1Snapshot:
     diagnostic_fields: dict[str, DiagnosticField]
     identity: ControllerIdentity
     spindle_report: SpindleReport
+    alert: ControllerAlert | None
 
     def as_diagnostics(self) -> dict[str, Any]:
         """Return diagnostics-safe snapshot data."""
@@ -286,6 +310,7 @@ class MakeraZ1Snapshot:
             },
             "identity": self.identity.as_diagnostics(),
             "spindle_report": self.spindle_report.as_diagnostics(),
+            "alert": self.alert.as_diagnostics() if self.alert else None,
         }
 
 
@@ -374,6 +399,7 @@ class MakeraZ1Client:
         self.camera_timeout = camera_timeout
         self._identity = ControllerIdentity()
         self._spindle_report = SpindleReport()
+        self._active_alert: ControllerAlert | None = None
         self._control_lock = asyncio.Lock()
         self._camera_setting_lock = asyncio.Lock()
         self._camera_resolution: CameraResolution | None = None
@@ -416,6 +442,7 @@ class MakeraZ1Client:
         spindle_report = SpindleReport()
         status: MachineStatus | None = None
         diagnostic: DiagnosticStatus | None = None
+        observed_alert: ControllerAlert | None = None
 
         writer: asyncio.StreamWriter | None = None
         try:
@@ -458,6 +485,13 @@ class MakeraZ1Client:
                         elif message.kind == "diagnostic":
                             diagnostic = message.value
                         elif message.kind == "line":
+                            alert = parse_controller_alert_line(message.value)
+                            if alert and (
+                                observed_alert is None
+                                or _alert_priority(alert)
+                                > _alert_priority(observed_alert)
+                            ):
+                                observed_alert = alert
                             info = parse_controller_info_line(message.value)
                             if info:
                                 identity = _update_identity(identity, *info)
@@ -495,12 +529,26 @@ class MakeraZ1Client:
 
         self._identity = identity
         self._spindle_report = spindle_report
+        controller_is_alarmed = status.state.lower().startswith(("alarm", "halt"))
+        if not controller_is_alarmed:
+            self._active_alert = None
+        elif observed_alert is not None:
+            if self._active_alert is None or _alert_priority(
+                observed_alert
+            ) >= _alert_priority(self._active_alert):
+                self._active_alert = observed_alert
+        elif self._active_alert is None:
+            self._active_alert = ControllerAlert(
+                message=status.state,
+                kind="controller_alarm",
+            )
         return MakeraZ1Snapshot(
             status=status,
             diagnostic=diagnostic,
             diagnostic_fields=map_diagnostic_fields(diagnostic),
             identity=identity,
             spindle_report=spindle_report,
+            alert=self._active_alert,
         )
 
     @property
@@ -1331,6 +1379,70 @@ def parse_controller_info_line(line: str) -> tuple[str, str | int] | None:
         return field, int(value)
 
     return field, value
+
+
+def parse_controller_alert_line(line: str) -> ControllerAlert | None:
+    """Parse a controller alarm line without treating ordinary errors as alarms."""
+    message = str(line or "").strip()
+    if not message:
+        return None
+    message = message[:255]
+
+    match = SOFT_ENDSTOP_RE.search(message)
+    if match:
+        return ControllerAlert(
+            message=message,
+            kind="soft_limit",
+            axis=match.group(1).upper(),
+            direction="negative",
+        )
+
+    match = HARD_LIMIT_RE.search(message)
+    if match:
+        return ControllerAlert(
+            message=message,
+            kind="hard_limit",
+            axis=match.group(1).upper(),
+            direction="positive" if match.group(2) == "+" else "negative",
+        )
+
+    lowered = message.lower()
+    if "emergency stop" in lowered:
+        return ControllerAlert(message=message, kind="emergency_stop")
+
+    motor_match = re.search(r"\b([xyza])\s+motor\s+alarm\b", message, re.I)
+    if motor_match:
+        return ControllerAlert(
+            message=message,
+            kind="motor_alarm",
+            axis=motor_match.group(1).upper(),
+        )
+
+    if "spindle alarm" in lowered:
+        return ControllerAlert(message=message, kind="spindle_alarm")
+    if "alarm lock" in lowered:
+        return ControllerAlert(message=message, kind="alarm_lock")
+    if lowered.startswith("alarm:") or "entering alarm/halt state" in lowered:
+        return ControllerAlert(message=message, kind="controller_alarm")
+    return None
+
+
+def snapshot_is_alarmed(snapshot: MakeraZ1Snapshot | None) -> bool | None:
+    """Return whether a snapshot reports an active alarm or halt condition."""
+    if snapshot is None:
+        return None
+    return snapshot.alert is not None or snapshot.status.state.lower().startswith(
+        ("alarm", "halt")
+    )
+
+
+def _alert_priority(alert: ControllerAlert) -> int:
+    """Rank specific alarm causes above the generic alarm-lock response."""
+    if alert.kind == "alarm_lock":
+        return 0
+    if alert.kind == "controller_alarm":
+        return 1
+    return 2
 
 
 def parse_spindle_report_line(line: str) -> dict[str, str | float] | None:

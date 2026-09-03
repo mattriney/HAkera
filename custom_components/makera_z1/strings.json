@@ -22,6 +22,7 @@
     "binary_sensor": {
       "connected": { "name": "Connected" },
       "alarm": { "name": "Alarm" },
+      "soft_limit_alarm": { "name": "Soft-limit alarm" },
       "spindle_running": { "name": "Spindle running" },
       "lid": { "name": "Lid" },
       "work_light_feedback": { "name": "Work light feedback" },
@@ -50,6 +51,7 @@
     },
     "sensor": {
       "machine_state": { "name": "State" },
+      "alarm_reason": { "name": "Alarm reason" },
       "firmware_version": { "name": "Firmware version" },
       "filesystem_type": { "name": "Filesystem type" },
       "current_tool": { "name": "Current tool" },

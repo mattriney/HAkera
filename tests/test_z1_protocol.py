@@ -23,6 +23,7 @@ from z1 import (  # noqa: E402
     diagnostic_switch_is_active,
     jpeg_dimensions,
     map_diagnostic_fields,
+    parse_controller_alert_line,
     parse_controller_info_line,
     parse_diagnostic_packet,
     parse_spindle_report_line,
@@ -138,6 +139,27 @@ class MakeraZ1ProtocolTest(unittest.TestCase):
             ("controller_time", 1788318245),
         )
         self.assertIsNone(parse_controller_info_line("time = not-a-number"))
+
+    def test_controller_alert_lines(self) -> None:
+        soft_limit = parse_controller_alert_line(
+            "Soft Endstop X was exceeded - reset or $X or M999 required"
+        )
+        self.assertIsNotNone(soft_limit)
+        self.assertEqual(soft_limit.kind, "soft_limit")
+        self.assertEqual(soft_limit.axis, "X")
+        self.assertEqual(soft_limit.direction, "negative")
+
+        hard_limit = parse_controller_alert_line("ALARM: Hard limit Z+")
+        self.assertIsNotNone(hard_limit)
+        self.assertEqual(hard_limit.kind, "hard_limit")
+        self.assertEqual(hard_limit.axis, "Z")
+        self.assertEqual(hard_limit.direction, "positive")
+
+        alarm_lock = parse_controller_alert_line("error:Alarm lock")
+        self.assertIsNotNone(alarm_lock)
+        self.assertEqual(alarm_lock.kind, "alarm_lock")
+        self.assertIsNone(alarm_lock.axis)
+        self.assertIsNone(parse_controller_alert_line("error:Unsupported command"))
 
     def test_spindle_report_lines(self) -> None:
         self.assertEqual(

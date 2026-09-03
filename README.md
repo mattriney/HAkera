@@ -63,6 +63,7 @@ Sensors:
 - Spindle temperature
 - Control-box temperature
 - WiFi signal
+- Alarm reason, including the axis when the controller reports it
 - Machine and work coordinates, disabled by default
 - Homing code, disabled by default until the bit meaning is confirmed
 
@@ -70,6 +71,7 @@ Binary sensors:
 
 - Connected
 - Alarm
+- Soft-limit alarm, with axis and direction attributes when reported
 - Spindle running
 - Work light feedback, disabled by default because the light entity has feedback
 - Lid
@@ -148,6 +150,10 @@ but it is not an HLS/WebRTC or recording source.
 - The Home Assistant config flow requires the controller to return its serial
   number with `sn-get`; this gives the config entry a stable unique ID.
 - Position sensors are disabled by default to avoid noisy state history.
+- Alarm reasons are controller events. If another application causes an alarm
+  and the firmware only returns `error:Alarm lock` to Home Assistant, the
+  integration can report the general alarm but cannot reconstruct the original
+  axis-specific reason.
 
 ## Development
 

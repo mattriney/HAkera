@@ -17,7 +17,11 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import MakeraZ1ConfigEntry
 from .coordinator import MakeraZ1Coordinator
 from .entity import MakeraZ1Entity
-from .z1 import MakeraZ1Snapshot, diagnostic_switch_is_active
+from .z1 import (
+    MakeraZ1Snapshot,
+    diagnostic_switch_is_active,
+    snapshot_is_alarmed,
+)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -54,11 +58,14 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[MakeraZ1BinarySensorEntityDescription, ...] = 
         key="alarm",
         translation_key="alarm",
         device_class=BinarySensorDeviceClass.PROBLEM,
-        value_fn=lambda coordinator: (
-            coordinator.data.status.state.lower().startswith("alarm")
-            if coordinator.data
-            else None
-        ),
+        value_fn=lambda coordinator: snapshot_is_alarmed(coordinator.data),
+    ),
+    MakeraZ1BinarySensorEntityDescription(
+        key="soft_limit_alarm",
+        translation_key="soft_limit_alarm",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda coordinator: _soft_limit_alarm(coordinator.data),
     ),
     MakeraZ1BinarySensorEntityDescription(
         key="spindle_running",
@@ -178,6 +185,22 @@ class MakeraZ1BinarySensor(MakeraZ1Entity, BinarySensorEntity):
         """Return the binary sensor state."""
         return self.entity_description.value_fn(self.coordinator)
 
+    @property
+    def extra_state_attributes(self) -> dict[str, str] | None:
+        """Return parsed details for controller alarm entities."""
+        if self.entity_description.key not in {"alarm", "soft_limit_alarm"}:
+            return None
+        snapshot = self.coordinator.data
+        if not snapshot or not snapshot.alert:
+            return None
+        alert = snapshot.alert
+        attributes = {"reason": alert.message, "type": alert.kind}
+        if alert.axis:
+            attributes["axis"] = alert.axis
+        if alert.direction:
+            attributes["direction"] = alert.direction
+        return attributes
+
 
 def _spindle_running(snapshot: MakeraZ1Snapshot | None) -> bool | None:
     """Infer spindle-running state from read-only status."""
@@ -194,3 +217,10 @@ def _spindle_running(snapshot: MakeraZ1Snapshot | None) -> bool | None:
         return snapshot.status.spindle[0] > 0
 
     return None
+
+
+def _soft_limit_alarm(snapshot: MakeraZ1Snapshot | None) -> bool | None:
+    """Return whether the active controller alert is a soft-limit event."""
+    if snapshot is None:
+        return None
+    return snapshot.alert is not None and snapshot.alert.kind == "soft_limit"

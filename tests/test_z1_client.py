@@ -188,6 +188,67 @@ class MakeraZ1ClientTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(snapshot.identity.firmware_version, "1.1.2.0.1.13")
         self.assertEqual(snapshot.spindle_report.current_rpm, 0.0)
         self.assertEqual(snapshot.diagnostic_fields["rssi"].value, -63.0)
+        self.assertIsNone(snapshot.alert)
+
+    async def test_soft_limit_alert_survives_alarm_lock_until_unlock(self) -> None:
+        responses = [
+            (
+                "Alarm",
+                "Soft Endstop X was exceeded - reset or $X or M999 required",
+            ),
+            ("Alarm", "error:Alarm lock"),
+            ("Idle", "[Caution: Unlocked]"),
+        ]
+
+        async def handle_client(
+            reader: asyncio.StreamReader,
+            writer: asyncio.StreamWriter,
+        ) -> None:
+            await reader.read(4096)
+            state, alert = responses.pop(0)
+            writer.write(
+                b"".join(
+                    (
+                        build_control_packet(
+                            0x81,
+                            (
+                                f"<{state}|MPos:-201,-1,-1,0|WPos:0,0,0,0|"
+                                "F:0,0|S:0,10000,100|T:1|O:100|H:0|C:1,0>"
+                            ).encode(),
+                        ),
+                        build_control_packet(
+                            0x83,
+                            b"{S:0,10000,0,0,26,23|G:0,0,0,0,0|"
+                            b"P:0,0|I:0|E:0,0,0,0,0,0,1,0|RSSI:-63}",
+                        ),
+                        build_control_packet(0x83, f"{alert}\n".encode()),
+                        build_control_packet(
+                            0x83,
+                            b"State: off, Current RPM: 0 Target RPM: 10000 "
+                            b"PWM value: 0.000\n",
+                        ),
+                    )
+                )
+            )
+            await writer.drain()
+            writer.close()
+
+        server = await asyncio.start_server(handle_client, "127.0.0.1", 0)
+        try:
+            port = server.sockets[0].getsockname()[1]
+            client = MakeraZ1Client("127.0.0.1", control_port=port)
+            first = await client.async_fetch_snapshot(include_identity=False)
+            second = await client.async_fetch_snapshot(include_identity=False)
+            third = await client.async_fetch_snapshot(include_identity=False)
+        finally:
+            server.close()
+            await server.wait_closed()
+
+        self.assertEqual(first.alert.kind, "soft_limit")
+        self.assertEqual(first.alert.axis, "X")
+        self.assertEqual(second.alert.kind, "soft_limit")
+        self.assertEqual(second.alert.axis, "X")
+        self.assertIsNone(third.alert)
 
     async def test_set_output_uses_allowlist_and_confirms_feedback(self) -> None:
         received_commands: list[str] = []

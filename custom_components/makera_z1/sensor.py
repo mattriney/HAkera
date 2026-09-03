@@ -67,6 +67,15 @@ SENSOR_DESCRIPTIONS: tuple[MakeraZ1SensorEntityDescription, ...] = (
         value_fn=lambda snapshot: snapshot.status.state,
     ),
     MakeraZ1SensorEntityDescription(
+        key="alarm_reason",
+        translation_key="alarm_reason",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:alert-circle-outline",
+        value_fn=lambda snapshot: (
+            snapshot.alert.message if snapshot.alert is not None else None
+        ),
+    ),
+    MakeraZ1SensorEntityDescription(
         key="firmware_version",
         translation_key="firmware_version",
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -287,13 +296,22 @@ class MakeraZ1Sensor(MakeraZ1Entity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return extra attributes for selected sensors."""
-        if self.entity_description.key != "machine_state" or not self.coordinator.data:
+        if not self.coordinator.data:
             return None
 
         snapshot = self.coordinator.data
-        return {
-            CONF_HOST: self.coordinator.client.host,
-            "raw_status": snapshot.status.raw,
-            "model": snapshot.identity.model,
-            "serial": snapshot.identity.serial,
-        }
+        if self.entity_description.key == "machine_state":
+            return {
+                CONF_HOST: self.coordinator.client.host,
+                "raw_status": snapshot.status.raw,
+                "model": snapshot.identity.model,
+                "serial": snapshot.identity.serial,
+            }
+        if self.entity_description.key == "alarm_reason" and snapshot.alert:
+            attributes = {"type": snapshot.alert.kind}
+            if snapshot.alert.axis:
+                attributes["axis"] = snapshot.alert.axis
+            if snapshot.alert.direction:
+                attributes["direction"] = snapshot.alert.direction
+            return attributes
+        return None

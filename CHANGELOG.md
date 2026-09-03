@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.1
+
+- Adds a dedicated soft-limit alarm binary sensor.
+- Parses the firmware's axis-specific soft-endstop, hard-limit, motor, spindle,
+  and emergency-stop alarm messages.
+- Adds an alarm-reason sensor and reason, type, axis, and direction attributes
+  to alarm entities when the controller reports them.
+- Retains a specific alarm reason across generic `error:Alarm lock` responses
+  and clears it after the controller is unlocked.
+
 ## 0.3.0
 
 - Adds feedback-backed work-light control.
