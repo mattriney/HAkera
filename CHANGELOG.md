@@ -9,8 +9,8 @@
   JPEG dimensions.
 - Retries one camera resolution request when the firmware does not apply the
   first request.
-- Live verified work-light, spindle-fan, external-output, and camera-resolution
-  control against Z1 firmware `1.1.2.0.1.13`.
+- Live verified work-light, spindle-fan, control-box-fan, external-output, and
+  camera-resolution control against Z1 firmware `1.1.2.0.1.13`.
 
 ## 0.2.1
 

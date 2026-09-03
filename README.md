@@ -13,8 +13,7 @@ of one Z1 Pro running firmware `1.1.2.0.1.13`. Its setup, status telemetry, lid
 state, spindle telemetry, and on-demand camera have been tested on Home Assistant
 `2026.8.3`. Work-light, spindle-fan, and external-output control and feedback, as
 well as camera resolution selection, have also been tested on the real machine.
-Control-box-fan control remains pending live verification and should not be
-placed in automations yet.
+Control-box-fan control and feedback have also been live verified.
 
 Confirmed device interfaces used here:
 
