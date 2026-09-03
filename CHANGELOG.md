@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1
+
+- Adds serial-verified host reconfiguration from the Home Assistant UI.
+- Makes newly captured firmware fixtures replayable and automatically redacts
+  the controller serial before writing them.
+
 ## 0.4.0
 
 - Renames the integration, HACS listing, repository package, and component

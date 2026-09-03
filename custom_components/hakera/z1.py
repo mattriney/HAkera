@@ -324,6 +324,7 @@ class MakeraZ1Snapshot:
     identity: ControllerIdentity
     spindle_report: SpindleReport
     alert: ControllerAlert | None
+    response_lines: tuple[str, ...] = ()
 
     def as_diagnostics(self) -> dict[str, Any]:
         """Return diagnostics-safe snapshot data."""
@@ -475,6 +476,7 @@ class MakeraZ1Client:
         status: MachineStatus | None = None
         diagnostic: DiagnosticStatus | None = None
         observed_alert: ControllerAlert | None = None
+        response_lines: list[str] = []
 
         writer: asyncio.StreamWriter | None = None
         try:
@@ -517,6 +519,7 @@ class MakeraZ1Client:
                         elif message.kind == "diagnostic":
                             diagnostic = message.value
                         elif message.kind == "line":
+                            response_lines.append(message.value)
                             alert = parse_controller_alert_line(message.value)
                             if alert and (
                                 observed_alert is None
@@ -604,6 +607,7 @@ class MakeraZ1Client:
             identity=identity,
             spindle_report=spindle_report,
             alert=self._active_alert,
+            response_lines=tuple(response_lines),
         )
 
     @property

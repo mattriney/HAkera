@@ -49,6 +49,46 @@ class MakeraZ1ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    async def async_step_reconfigure(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> config_entries.ConfigFlowResult:
+        """Update the network address for an existing Z1 entry."""
+        entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            host = str(user_input[CONF_HOST]).strip()
+            try:
+                serial = await _async_validate_host(self.hass, host)
+            except ValueError:
+                errors["base"] = "invalid_host"
+            except MakeraZ1ConnectionError:
+                errors["base"] = "cannot_connect"
+            except MakeraZ1Error:
+                errors["base"] = "cannot_identify"
+            else:
+                if serial != entry.unique_id:
+                    errors["base"] = "wrong_device"
+                else:
+                    return self.async_update_reload_and_abort(
+                        entry,
+                        data_updates={CONF_HOST: host},
+                    )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_HOST,
+                        default=entry.data[CONF_HOST],
+                    ): str
+                }
+            ),
+            errors=errors,
+        )
+
 
 async def _async_validate_host(hass: HomeAssistant, host: str) -> str:
     """Validate the host and return the stable controller serial number."""

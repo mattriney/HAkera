@@ -189,6 +189,11 @@ class MakeraZ1ClientTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(snapshot.spindle_report.current_rpm, 0.0)
         self.assertEqual(snapshot.diagnostic_fields["rssi"].value, -63.0)
         self.assertIsNone(snapshot.alert)
+        self.assertIn("sn = Z1P000000X000001", snapshot.response_lines)
+        self.assertIn(
+            "State: off, Current RPM:     0  Target RPM: 10000  PWM value: 0.000",
+            snapshot.response_lines,
+        )
 
     async def test_halt_code_identifies_soft_limit_and_preserves_details(self) -> None:
         responses = [

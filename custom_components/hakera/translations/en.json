@@ -7,15 +7,24 @@
         "data": {
           "host": "Host"
         }
+      },
+      "reconfigure": {
+        "title": "Update network address",
+        "description": "Enter the new LAN host or IP address for this Makera Z1.",
+        "data": {
+          "host": "Host"
+        }
       }
     },
     "error": {
       "cannot_connect": "Could not connect to the Makera Z1.",
       "cannot_identify": "Connected, but the controller did not return a serial number.",
-      "invalid_host": "Enter a valid host name or IPv4 address."
+      "invalid_host": "Enter a valid host name or IPv4 address.",
+      "wrong_device": "The address belongs to a different Makera Z1."
     },
     "abort": {
-      "already_configured": "This Makera Z1 is already configured."
+      "already_configured": "This Makera Z1 is already configured.",
+      "reconfigure_successful": "The network address was updated."
     }
   },
   "entity": {

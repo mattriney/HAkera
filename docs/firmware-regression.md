@@ -19,7 +19,7 @@ parser changes are reviewed instead of guessed.
 6. Run:
 
    ```powershell
-   python -m unittest discover -s tests
+   python -m pytest --cov=custom_components.hakera --cov-report=term-missing --cov-fail-under=80
    ```
 
 7. Commit the fixture with any required parser/entity changes.
@@ -30,12 +30,13 @@ The helper records only read-only protocol data:
 
 - raw status packet
 - raw diagnostic packet
-- controller identity values
-- spindle status values
+- raw controller identity lines and parsed values
+- raw spindle status lines and parsed values
 - mapped diagnostic fields
 
-It does not capture WiFi credentials, file contents, camera frames, G-code, or
-machine-control commands.
+The controller serial is automatically replaced with a fixed test serial before
+the fixture is written. The helper does not capture WiFi credentials, file
+contents, camera frames, G-code, or machine-control commands.
 
 ## How CI uses it
 

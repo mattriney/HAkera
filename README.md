@@ -47,6 +47,13 @@ directory:
 
 Restart Home Assistant, then add the integration from the UI.
 
+### Changing the Z1 address
+
+If DHCP assigns the machine a different address, open the Hakera integration in
+`Settings -> Devices & services`, choose `Reconfigure`, and enter the new host.
+Hakera verifies the controller serial number before updating and reloading the
+entry.
+
 ### Replacing Makera Z1 0.3.x
 
 Hakera `0.4.0` intentionally replaces the old `makera_z1` integration domain.

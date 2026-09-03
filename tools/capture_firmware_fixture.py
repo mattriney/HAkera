@@ -15,7 +15,14 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 COMPONENT = ROOT / "custom_components" / "hakera"
 sys.path.append(str(COMPONENT))
 
-from z1 import MakeraZ1Client  # noqa: E402
+from z1 import (  # noqa: E402
+    MakeraZ1Client,
+    MakeraZ1Snapshot,
+    parse_controller_info_line,
+    parse_spindle_report_line,
+)
+
+FIXTURE_SERIAL = "Z1P000000X000001"
 
 
 def fixture_name(firmware: str) -> str:
@@ -24,15 +31,30 @@ def fixture_name(firmware: str) -> str:
     return f"firmware_{normalized or 'unknown'}.json"
 
 
-async def async_capture(host: str, firmware: str | None, output: pathlib.Path) -> None:
-    """Capture and write one fixture."""
-    client = MakeraZ1Client(host)
-    snapshot = await client.async_fetch_snapshot(include_identity=True)
+def build_fixture(
+    snapshot: MakeraZ1Snapshot,
+    firmware: str | None,
+    *,
+    captured_at: datetime | None = None,
+) -> dict[str, Any]:
+    """Build a commit-safe regression fixture from one controller snapshot."""
     version = firmware or snapshot.identity.firmware_version or "unknown"
+    identity = snapshot.identity.as_diagnostics()
+    identity["serial"] = FIXTURE_SERIAL if identity["serial"] else None
 
-    data: dict[str, Any] = {
+    identity_lines: list[str] = []
+    spindle_lines: list[str] = []
+    for line in snapshot.response_lines:
+        identity_field = parse_controller_info_line(line)
+        if identity_field:
+            key, _ = identity_field
+            identity_lines.append(f"sn = {FIXTURE_SERIAL}" if key == "serial" else line)
+        if parse_spindle_report_line(line):
+            spindle_lines.append(line)
+
+    return {
         "fixture_version": 1,
-        "captured_at": datetime.now(UTC).isoformat(),
+        "captured_at": (captured_at or datetime.now(UTC)).isoformat(),
         "firmware": version,
         "raw": {
             "status": snapshot.status.raw,
@@ -40,7 +62,9 @@ async def async_capture(host: str, firmware: str | None, output: pathlib.Path) -
         },
         "expected": {
             "machine_state": snapshot.status.state,
-            "identity": snapshot.identity.as_diagnostics(),
+            "identity": identity,
+            "identity_lines": identity_lines,
+            "spindle_lines": spindle_lines,
             "spindle_report": snapshot.spindle_report.as_diagnostics(),
             "diagnostic_fields": {
                 key: {
@@ -52,10 +76,28 @@ async def async_capture(host: str, firmware: str | None, output: pathlib.Path) -
         },
     }
 
+
+async def async_capture(
+    host: str,
+    firmware: str | None,
+    output: pathlib.Path | None,
+) -> pathlib.Path:
+    """Capture and write one fixture, returning its destination."""
+    client = MakeraZ1Client(host)
+    try:
+        snapshot = await client.async_fetch_snapshot(include_identity=True)
+    finally:
+        await client.async_close()
+    data = build_fixture(snapshot, firmware)
+
+    if output is None:
+        output = ROOT / "tests" / "fixtures" / fixture_name(data["firmware"])
+
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
         json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
+    return output
 
 
 def main() -> None:
@@ -70,11 +112,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    output = args.output
-    if output is None:
-        output = ROOT / "tests" / "fixtures" / fixture_name(args.firmware or "unknown")
-
-    asyncio.run(async_capture(args.host, args.firmware, output))
+    output = asyncio.run(async_capture(args.host, args.firmware, args.output))
     print(f"Wrote {output}")
 
 
