@@ -1,7 +1,8 @@
-# Makera Z1 for Home Assistant
+# Hakera
 
-Home Assistant custom integration for monitoring a Makera Z1 / Z1 Pro and
-controlling a small set of non-motion accessories over the local network.
+Hakera is a Home Assistant custom integration for monitoring a Makera Z1 / Z1
+Pro and controlling a small set of non-motion accessories over the local
+network.
 
 This repository does not expose motion, the spindle motor, tool change, probing,
 file upload, arbitrary G-code, or job-control actions.
@@ -29,22 +30,36 @@ Confirmed device interfaces used here:
 ### HACS custom repository
 
 1. Add this repository to HACS as a custom repository of type `Integration`.
-2. Install `Makera Z1`.
+2. Install `Hakera`.
 3. Restart Home Assistant.
 4. Go to `Settings -> Devices & services -> Add integration`.
-5. Search for `Makera Z1`.
+5. Search for `Hakera`.
 6. Enter the Z1 host or IP address.
 
 ### Manual installation
 
-Copy `custom_components/makera_z1` into your Home Assistant configuration
+Copy `custom_components/hakera` into your Home Assistant configuration
 directory:
 
 ```text
-<ha-config>/custom_components/makera_z1
+<ha-config>/custom_components/hakera
 ```
 
 Restart Home Assistant, then add the integration from the UI.
+
+### Replacing Makera Z1 0.3.x
+
+Hakera `0.4.0` intentionally replaces the old `makera_z1` integration domain.
+Remove the old `Makera Z1` config entry and its `custom_components/makera_z1`
+folder before installing Hakera, restart Home Assistant, then add `Hakera` as a
+new integration. Existing entity IDs and dashboard references are not migrated.
+
+## Removal
+
+1. Go to `Settings -> Devices & services` and open `Hakera`.
+2. Open the integration entry menu and select `Delete`.
+3. To remove the files as well, uninstall `Hakera` in HACS or delete
+   `custom_components/hakera`, then restart Home Assistant.
 
 ## Entities
 
@@ -156,11 +171,21 @@ but it is not an HLS/WebRTC or recording source.
 
 ## Development
 
-Run the pure protocol tests without Home Assistant installed:
+Install the pinned test dependencies and run the complete Home Assistant and
+protocol suite:
 
 ```powershell
-python -m unittest discover -s tests
+python -m pip install -r requirements_test.txt
+python -m pytest --cov=custom_components.hakera --cov-report=term-missing --cov-fail-under=80
 ```
+
+The test dependency release is matched to Home Assistant `2026.8.3`, the same
+version used for live verification. Tests exercise the UI config flow, full
+config-entry setup and unload, entity registry migration, entity state and
+service behavior, diagnostics redaction, camera stills and MJPEG output, plus
+the lower-level controller protocol and firmware fixtures. Network access is
+blocked by default; the four protocol transport tests explicitly use only a
+fake controller bound to `127.0.0.1`.
 
 When new Z1 firmware is released, capture a new read-only fixture while the
 machine is idle:
@@ -173,17 +198,19 @@ Review the generated JSON under `tests/fixtures/`, then run the tests. This
 keeps protocol changes visible in source control before the Home Assistant
 integration is updated.
 
-The GitHub workflow also runs:
+The GitHub workflow runs:
 
 - HACS validation
 - Home Assistant hassfest validation
-- Unit tests for the protocol parser/client helpers
+- Ruff lint and format checks
+- Home Assistant runtime and protocol tests with an 80% coverage floor
 
 ## Repository layout
 
 ```text
-custom_components/makera_z1/  Home Assistant integration
-tests/                        Pure Python protocol tests
+custom_components/hakera/        Home Assistant integration
+custom_components/hakera/brand/  Local Home Assistant brand icons
+tests/                        Home Assistant and protocol tests
 tests/fixtures/               Firmware protocol regression fixtures
 tools/                        Local read-only fixture capture helpers
 .github/workflows/            Repository validation

@@ -10,7 +10,7 @@ from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-COMPONENT = ROOT / "custom_components" / "makera_z1"
+COMPONENT = ROOT / "custom_components" / "hakera"
 sys.path.append(str(COMPONENT))
 
 from z1 import (  # noqa: E402
@@ -159,7 +159,7 @@ class MakeraZ1ClientTest(unittest.IsolatedAsyncioTestCase):
                         b"State: off, Current RPM:     0  "
                         b"Target RPM: 10000  PWM value: 0.000\n",
                     ),
-                    build_control_packet(0x83, b"sn = Z1P012601K012171\n"),
+                    build_control_packet(0x83, b"sn = Z1P000000X000001\n"),
                     build_control_packet(0x83, b"model = Z1, 4, 1, 0, Idle\n"),
                     build_control_packet(0x83, b"version = 1.1.2.0.1.13\n"),
                     build_control_packet(0x83, b"ftype = nc\n"),
@@ -184,7 +184,7 @@ class MakeraZ1ClientTest(unittest.IsolatedAsyncioTestCase):
             ["diagnose", "M957", "sn-get", "model", "version", "ftype"],
         )
         self.assertEqual(snapshot.status.state, "Idle")
-        self.assertEqual(snapshot.identity.serial, "Z1P012601K012171")
+        self.assertEqual(snapshot.identity.serial, "Z1P000000X000001")
         self.assertEqual(snapshot.identity.firmware_version, "1.1.2.0.1.13")
         self.assertEqual(snapshot.spindle_report.current_rpm, 0.0)
         self.assertEqual(snapshot.diagnostic_fields["rssi"].value, -63.0)

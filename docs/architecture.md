@@ -22,7 +22,7 @@ protocol client.
 ## Z1 protocol layer
 
 `z1.py` contains the runtime protocol code because HACS requires all files
-needed by the integration to live under `custom_components/makera_z1`.
+needed by the integration to live under `custom_components/hakera`.
 
 The normal TCP poll sends only read-only traffic:
 

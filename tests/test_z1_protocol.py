@@ -6,9 +6,7 @@ import pathlib
 import sys
 import unittest
 
-COMPONENT = (
-    pathlib.Path(__file__).resolve().parents[1] / "custom_components" / "makera_z1"
-)
+COMPONENT = pathlib.Path(__file__).resolve().parents[1] / "custom_components" / "hakera"
 sys.path.append(str(COMPONENT))
 
 from z1 import (  # noqa: E402
@@ -121,8 +119,8 @@ class MakeraZ1ProtocolTest(unittest.TestCase):
 
     def test_controller_info_lines(self) -> None:
         self.assertEqual(
-            parse_controller_info_line("sn = Z1P012601K012171"),
-            ("serial", "Z1P012601K012171"),
+            parse_controller_info_line("sn = Z1P000000X000001"),
+            ("serial", "Z1P000000X000001"),
         )
         self.assertEqual(
             parse_controller_info_line("model = Z1, 4, 1, 0, Idle"),

@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-COMPONENT = ROOT / "custom_components" / "makera_z1"
+COMPONENT = ROOT / "custom_components" / "hakera"
 sys.path.append(str(COMPONENT))
 
 from z1 import MakeraZ1Client  # noqa: E402

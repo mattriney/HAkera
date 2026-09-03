@@ -6,7 +6,7 @@ from datetime import timedelta
 
 from homeassistant.const import Platform
 
-DOMAIN = "makera_z1"
+DOMAIN = "hakera"
 
 MANUFACTURER = "Makera"
 MODEL = "Z1"

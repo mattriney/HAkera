@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 import pathlib
+import struct
 import sys
 import tomllib
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 COMPONENT_ROOT = ROOT / "custom_components"
-COMPONENT = COMPONENT_ROOT / "makera_z1"
+COMPONENT = COMPONENT_ROOT / "hakera"
 sys.path.append(str(COMPONENT))
 
 from z1 import (  # noqa: E402
@@ -34,8 +35,8 @@ class RepositoryContractTest(unittest.TestCase):
 
     def test_manifest_matches_home_assistant_basics(self) -> None:
         manifest = json.loads((COMPONENT / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["domain"], "makera_z1")
-        self.assertEqual(manifest["name"], "Makera Z1")
+        self.assertEqual(manifest["domain"], "hakera")
+        self.assertEqual(manifest["name"], "Hakera")
         self.assertTrue(manifest["config_flow"])
         self.assertEqual(manifest["integration_type"], "device")
         self.assertEqual(manifest["iot_class"], "local_polling")
@@ -47,7 +48,7 @@ class RepositoryContractTest(unittest.TestCase):
 
     def test_hacs_metadata_is_valid(self) -> None:
         hacs = json.loads((ROOT / "hacs.json").read_text(encoding="utf-8"))
-        self.assertEqual(hacs["name"], "Makera Z1")
+        self.assertEqual(hacs["name"], "Hakera")
         self.assertIn("sensor", hacs["domains"])
         self.assertIn("binary_sensor", hacs["domains"])
         self.assertIn("camera", hacs["domains"])
@@ -55,8 +56,25 @@ class RepositoryContractTest(unittest.TestCase):
         self.assertIn("light", hacs["domains"])
         self.assertIn("select", hacs["domains"])
 
+    def test_brand_icons_match_home_assistant_requirements(self) -> None:
+        brand = COMPONENT / "brand"
+        for name, expected_size in {"icon.png": 256, "icon@2x.png": 512}.items():
+            with self.subTest(name=name):
+                data = (brand / name).read_bytes()
+                self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
+                self.assertEqual(data[12:16], b"IHDR")
+                self.assertEqual(
+                    struct.unpack(">II", data[16:24]), (expected_size,) * 2
+                )
+                self.assertIn(data[25], {4, 6}, "brand icon must retain transparency")
+
     def test_json_files_are_valid(self) -> None:
-        for path in ROOT.rglob("*.json"):
+        json_files = [
+            ROOT / "hacs.json",
+            *COMPONENT.rglob("*.json"),
+            *(ROOT / "tests" / "fixtures").rglob("*.json"),
+        ]
+        for path in json_files:
             with self.subTest(path=path.relative_to(ROOT).as_posix()):
                 json.loads(path.read_text(encoding="utf-8"))
 
@@ -81,7 +99,7 @@ class RepositoryContractTest(unittest.TestCase):
 
     def test_pyproject_is_valid_toml(self) -> None:
         data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-        self.assertEqual(data["project"]["name"], "home-assistant-makera-z1")
+        self.assertEqual(data["project"]["name"], "home-assistant-hakera")
         self.assertEqual(data["project"]["requires-python"], ">=3.14.2")
 
     def test_runtime_command_allowlist_is_constrained(self) -> None:

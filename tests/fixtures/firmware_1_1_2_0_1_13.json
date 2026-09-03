@@ -8,13 +8,13 @@
   "expected": {
     "machine_state": "Idle",
     "identity": {
-      "serial": "Z1P012601K012171",
+      "serial": "Z1P000000X000001",
       "model": "Z1, 4, 1, 0, Idle",
       "firmware_version": "1.1.2.0.1.13",
       "filesystem_type": "nc"
     },
     "identity_lines": [
-      "sn = Z1P012601K012171",
+      "sn = Z1P000000X000001",
       "model = Z1, 4, 1, 0, Idle",
       "version = 1.1.2.0.1.13",
       "ftype = nc"

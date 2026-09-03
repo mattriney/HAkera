@@ -905,7 +905,7 @@ class _CameraStreamBroker:
             self._idle.clear()
             if self._task is None:
                 self._task = asyncio.create_task(
-                    self._async_run(), name="makera_z1_camera_stream"
+                    self._async_run(), name="hakera_camera_stream"
                 )
 
     async def _async_unsubscribe(
@@ -982,7 +982,7 @@ class _CameraStreamBroker:
                 if self._subscribers and not self._closed:
                     self._idle.clear()
                     self._task = asyncio.create_task(
-                        self._async_run(), name="makera_z1_camera_stream"
+                        self._async_run(), name="hakera_camera_stream"
                     )
 
     async def _async_receive_or_idle(self, websocket: Any) -> Any | None:

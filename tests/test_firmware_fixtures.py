@@ -8,7 +8,7 @@ import sys
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-COMPONENT = ROOT / "custom_components" / "makera_z1"
+COMPONENT = ROOT / "custom_components" / "hakera"
 FIXTURES = ROOT / "tests" / "fixtures"
 sys.path.append(str(COMPONENT))
 

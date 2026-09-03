@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0
+
+- Renames the integration, HACS listing, repository package, and component
+  domain to `Hakera` / `hakera`. Existing `makera_z1` installations must be
+  removed and added again because this is an intentional breaking rename.
+- Adds Home Assistant `2026.8.3` config-flow and runtime tests covering setup,
+  unload, registry migration, entities, services, camera output, and diagnostics.
+- Runs the complete test suite in GitHub Actions with an 80% coverage floor.
+- Documents clean integration removal and the reproducible development workflow.
+- Adds locally bundled 1x and 2x Home Assistant brand icons required by HACS.
+
 ## 0.3.2
 
 - Decodes the controller's persistent `H` halt-reason codes, including
