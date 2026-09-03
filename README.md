@@ -11,8 +11,10 @@ file upload, arbitrary G-code, or job-control actions.
 This custom component was built from local reverse engineering and live testing
 of one Z1 Pro running firmware `1.1.2.0.1.13`. Its setup, status telemetry, lid
 state, spindle telemetry, and on-demand camera have been tested on Home Assistant
-`2026.8.3`. Accessory controls and camera resolution selection remain early
-features that should be tested locally before being placed in automations.
+`2026.8.3`. Work-light, spindle-fan, and external-output control and feedback, as
+well as camera resolution selection, have also been tested on the real machine.
+Control-box-fan control remains pending live verification and should not be
+placed in automations yet.
 
 Confirmed device interfaces used here:
 
