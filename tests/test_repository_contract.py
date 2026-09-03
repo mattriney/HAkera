@@ -21,7 +21,9 @@ class RepositoryContractTest(unittest.TestCase):
 
     def test_repo_contains_one_hacs_integration(self) -> None:
         integrations = [
-            path for path in COMPONENT_ROOT.iterdir() if path.is_dir() and path.name != "__pycache__"
+            path
+            for path in COMPONENT_ROOT.iterdir()
+            if path.is_dir() and path.name != "__pycache__"
         ]
         self.assertEqual(integrations, [COMPONENT])
 

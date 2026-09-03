@@ -6,7 +6,9 @@ import pathlib
 import sys
 import unittest
 
-COMPONENT = pathlib.Path(__file__).resolve().parents[1] / "custom_components" / "makera_z1"
+COMPONENT = (
+    pathlib.Path(__file__).resolve().parents[1] / "custom_components" / "makera_z1"
+)
 sys.path.insert(0, str(COMPONENT))
 
 from z1 import (  # noqa: E402

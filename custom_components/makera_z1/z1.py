@@ -7,11 +7,12 @@ that was built from Makera Studio packet captures and live Z1 testing.
 from __future__ import annotations
 
 import asyncio
-from contextlib import suppress
-from dataclasses import dataclass, replace
 import ipaddress
 import math
 import re
+from collections.abc import AsyncGenerator
+from contextlib import suppress
+from dataclasses import dataclass, replace
 from typing import Any, Final
 
 CONTROL_PORT: Final = 2222
@@ -46,7 +47,7 @@ class MakeraZ1ResponseError(MakeraZ1Error):
     """Raised when the Z1 returns an unexpected response."""
 
 
-class MakeraZ1CameraBusy(MakeraZ1Error):
+class MakeraZ1CameraBusyError(MakeraZ1Error):
     """Raised when the firmware camera channel is occupied."""
 
 
@@ -167,9 +168,7 @@ class MakeraZ1Snapshot:
         """Return diagnostics-safe snapshot data."""
         return {
             "status": self.status.as_diagnostics(),
-            "diagnostic": self.diagnostic.as_diagnostics()
-            if self.diagnostic
-            else None,
+            "diagnostic": self.diagnostic.as_diagnostics() if self.diagnostic else None,
             "diagnostic_fields": {
                 key: {
                     "label": value.label,
@@ -201,6 +200,12 @@ class _StreamMessage:
 
 
 @dataclass(frozen=True, slots=True)
+class _CameraStreamEvent:
+    frame: bytes | None = None
+    error: MakeraZ1Error | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class _DiagnosticFieldDefinition:
     label: str
     field: str
@@ -223,9 +228,7 @@ Z1_DIAGNOSTIC_FIELDS: Final[dict[str, _DiagnosticFieldDefinition]] = {
     "spindleTemperature": _DiagnosticFieldDefinition(
         "Spindle temp", "S", 4, "number", "C"
     ),
-    "powerTemperature": _DiagnosticFieldDefinition(
-        "Power temp", "S", 5, "number", "C"
-    ),
+    "powerTemperature": _DiagnosticFieldDefinition("Power temp", "S", 5, "number", "C"),
     "rssi": _DiagnosticFieldDefinition("WiFi signal", "RSSI", 0, "number", "dBm"),
 }
 
@@ -254,6 +257,7 @@ class MakeraZ1Client:
         self.camera_timeout = camera_timeout
         self._identity = ControllerIdentity()
         self._spindle_report = SpindleReport()
+        self._camera_broker = _CameraStreamBroker(self)
 
     async def async_fetch_snapshot(
         self,
@@ -345,7 +349,7 @@ class MakeraZ1Client:
 
         except MakeraZ1Error:
             raise
-        except (OSError, TimeoutError, asyncio.TimeoutError) as err:
+        except (OSError, TimeoutError) as err:
             raise MakeraZ1ConnectionError(
                 f"Could not connect to {self.host}:{self.control_port}."
             ) from err
@@ -356,7 +360,9 @@ class MakeraZ1Client:
                     await writer.wait_closed()
 
         if status is None:
-            raise MakeraZ1ResponseError("The controller did not return a status packet.")
+            raise MakeraZ1ResponseError(
+                "The controller did not return a status packet."
+            )
 
         self._identity = identity
         self._spindle_report = spindle_report
@@ -369,30 +375,124 @@ class MakeraZ1Client:
         )
 
     async def async_get_camera_image(self) -> bytes:
-        """Open the camera WebSocket, return one JPEG frame, then close it."""
-        if self.session is None:
-            raise MakeraZ1ConnectionError("No HTTP client session is available.")
+        """Return the next JPEG from the shared on-demand camera stream."""
+        frames = self.async_camera_frames()
+        try:
+            return await anext(frames)
+        except StopAsyncIteration as err:
+            raise MakeraZ1ConnectionError(
+                "Camera stream ended without a frame."
+            ) from err
+        finally:
+            await frames.aclose()
 
+    def async_camera_frames(self) -> AsyncGenerator[bytes, None]:
+        """Yield live JPEG frames while at least one consumer is subscribed."""
+        return self._camera_broker.async_frames()
+
+    async def async_close(self) -> None:
+        """Close any persistent resources."""
+        await self._camera_broker.async_close()
+
+
+class _CameraStreamBroker:
+    """Share the Z1's single camera channel among local consumers."""
+
+    def __init__(self, client: MakeraZ1Client) -> None:
+        """Initialize the broker."""
+        self._client = client
+        self._lock = asyncio.Lock()
+        self._idle = asyncio.Event()
+        self._subscribers: set[asyncio.Queue[_CameraStreamEvent]] = set()
+        self._task: asyncio.Task[None] | None = None
+        self._closed = False
+
+    async def async_frames(self) -> AsyncGenerator[bytes, None]:
+        """Subscribe to live frames, dropping stale frames for slow consumers."""
+        queue: asyncio.Queue[_CameraStreamEvent] = asyncio.Queue(maxsize=1)
+        await self._async_subscribe(queue)
+        try:
+            while True:
+                event = await queue.get()
+                if event.error is not None:
+                    raise event.error
+                if event.frame is None:
+                    return
+                yield event.frame
+        finally:
+            await self._async_unsubscribe(queue)
+
+    async def async_close(self) -> None:
+        """Stop the upstream stream and release all subscribers."""
+        async with self._lock:
+            self._closed = True
+            subscribers = tuple(self._subscribers)
+            self._subscribers.clear()
+            self._idle.set()
+            task = self._task
+
+        for queue in subscribers:
+            self._offer(queue, _CameraStreamEvent())
+
+        if task is not None and not task.done():
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+
+    async def _async_subscribe(self, queue: asyncio.Queue[_CameraStreamEvent]) -> None:
+        """Register a consumer and start the upstream stream when needed."""
+        async with self._lock:
+            if self._closed:
+                raise MakeraZ1ConnectionError("Camera client is closed.")
+            self._subscribers.add(queue)
+            self._idle.clear()
+            if self._task is None:
+                self._task = asyncio.create_task(
+                    self._async_run(), name="makera_z1_camera_stream"
+                )
+
+    async def _async_unsubscribe(
+        self, queue: asyncio.Queue[_CameraStreamEvent]
+    ) -> None:
+        """Remove a consumer and signal the upstream stream when it is idle."""
+        async with self._lock:
+            self._subscribers.discard(queue)
+            if not self._subscribers:
+                self._idle.set()
+
+    async def _async_run(self) -> None:
+        """Relay one upstream WebSocket connection to all subscribers."""
         from aiohttp import ClientError, WSMsgType
 
-        url = f"ws://{self.host}:{self.camera_port}/ws_video"
+        url = f"ws://{self._client.host}:{self._client.camera_port}/ws_video"
         websocket = None
+        current_task = asyncio.current_task()
         try:
-            websocket = await self.session.ws_connect(url, heartbeat=10)
+            if self._client.session is None:
+                raise MakeraZ1ConnectionError("No HTTP client session is available.")
+
+            websocket = await asyncio.wait_for(
+                self._client.session.ws_connect(url),
+                timeout=self._client.camera_timeout,
+            )
             await websocket.send_str("start_stream")
 
             while True:
-                message = await websocket.receive(timeout=self.camera_timeout)
+                message = await self._async_receive_or_idle(websocket)
+                if message is None:
+                    break
+
                 if message.type == WSMsgType.BINARY:
                     frame = bytes(message.data)
                     if not is_jpeg(frame):
                         raise MakeraZ1ResponseError("Camera returned a non-JPEG frame.")
-                    return frame
+                    await self._async_publish_frame(frame)
+                    continue
 
                 if message.type == WSMsgType.TEXT:
                     text = str(message.data)
                     if "occupied" in text.lower():
-                        raise MakeraZ1CameraBusy(text)
+                        raise MakeraZ1CameraBusyError(text)
                     continue
 
                 if message.type in {
@@ -403,10 +503,14 @@ class MakeraZ1Client:
                 }:
                     raise MakeraZ1ConnectionError("Camera WebSocket closed.")
 
-        except MakeraZ1Error:
+        except asyncio.CancelledError:
             raise
-        except (ClientError, TimeoutError, asyncio.TimeoutError) as err:
-            raise MakeraZ1ConnectionError(f"Could not read camera image from {url}.") from err
+        except MakeraZ1Error as err:
+            await self._async_terminate(err)
+        except (ClientError, OSError, TimeoutError):
+            await self._async_terminate(
+                MakeraZ1ConnectionError(f"Could not read camera stream from {url}.")
+            )
         finally:
             if websocket is not None and not websocket.closed:
                 with suppress(Exception):
@@ -414,9 +518,76 @@ class MakeraZ1Client:
                 with suppress(Exception):
                     await websocket.close()
 
-    async def async_close(self) -> None:
-        """Close any persistent resources."""
-        return None
+            async with self._lock:
+                if self._task is current_task:
+                    self._task = None
+                if self._subscribers and not self._closed:
+                    self._idle.clear()
+                    self._task = asyncio.create_task(
+                        self._async_run(), name="makera_z1_camera_stream"
+                    )
+
+    async def _async_receive_or_idle(self, websocket: Any) -> Any | None:
+        """Wait for either a camera message or the final viewer to leave."""
+        while True:
+            receive_task = asyncio.create_task(
+                websocket.receive(timeout=self._client.camera_timeout)
+            )
+            idle_task = asyncio.create_task(self._idle.wait())
+            try:
+                done, _ = await asyncio.wait(
+                    {receive_task, idle_task}, return_when=asyncio.FIRST_COMPLETED
+                )
+            except BaseException:
+                receive_task.cancel()
+                idle_task.cancel()
+                await asyncio.gather(receive_task, idle_task, return_exceptions=True)
+                raise
+
+            if receive_task in done:
+                idle_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await idle_task
+                return receive_task.result()
+
+            receive_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await receive_task
+            async with self._lock:
+                if not self._subscribers:
+                    return None
+                self._idle.clear()
+
+    async def _async_publish_frame(self, frame: bytes) -> None:
+        """Publish the newest frame to each active consumer."""
+        async with self._lock:
+            subscribers = tuple(self._subscribers)
+            if not subscribers:
+                self._idle.set()
+
+        event = _CameraStreamEvent(frame=frame)
+        for queue in subscribers:
+            self._offer(queue, event)
+
+    async def _async_terminate(self, error: MakeraZ1Error) -> None:
+        """End all current subscriptions with an upstream error."""
+        async with self._lock:
+            subscribers = tuple(self._subscribers)
+            self._subscribers.clear()
+            self._idle.set()
+
+        event = _CameraStreamEvent(error=error)
+        for queue in subscribers:
+            self._offer(queue, event)
+
+    @staticmethod
+    def _offer(
+        queue: asyncio.Queue[_CameraStreamEvent], event: _CameraStreamEvent
+    ) -> None:
+        """Put an event without allowing a slow consumer to grow a backlog."""
+        if queue.full():
+            queue.get_nowait()
+        queue.put_nowait(event)
 
 
 class ControlPacketParser:
@@ -742,7 +913,9 @@ def map_diagnostic_fields(
 def parse_controller_info_line(line: str) -> tuple[str, str | int] | None:
     """Parse controller identity/info lines."""
     raw = str(line or "").strip()
-    match = re.match(r"^(sn|model|version|ftype|time|sys-time-data)\s*=\s*(.+)$", raw, re.I)
+    match = re.match(
+        r"^(sn|model|version|ftype|time|sys-time-data)\s*=\s*(.+)$", raw, re.I
+    )
     if not match:
         return None
 

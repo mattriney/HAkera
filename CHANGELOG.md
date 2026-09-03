@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0
+
+- Adds on-demand live MJPEG video through Home Assistant's camera proxy.
+- Shares one Z1 camera WebSocket among simultaneous Home Assistant consumers.
+- Stops and closes the Z1 camera stream when the final viewer disconnects.
+- Serves still requests from the same broker to avoid camera-owner contention.
+
 ## 0.1.0
 
 - Initial read-only Makera Z1 / Z1 Pro Home Assistant custom integration.

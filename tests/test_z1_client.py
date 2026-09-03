@@ -6,6 +6,8 @@ import asyncio
 import pathlib
 import sys
 import unittest
+from types import ModuleType, SimpleNamespace
+from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 COMPONENT = ROOT / "custom_components" / "makera_z1"
@@ -13,9 +15,80 @@ sys.path.insert(0, str(COMPONENT))
 
 from z1 import (  # noqa: E402
     ControlPacketParser,
+    MakeraZ1CameraBusyError,
     MakeraZ1Client,
     build_control_packet,
 )
+
+
+class _FakeClientError(Exception):
+    """Stand in for aiohttp.ClientError."""
+
+
+class _FakeWSMsgType:
+    """Message constants used by the camera client."""
+
+    BINARY = "binary"
+    TEXT = "text"
+    CLOSE = "close"
+    CLOSED = "closed"
+    CLOSING = "closing"
+    ERROR = "error"
+
+
+class _FakeWebSocket:
+    """Queue-backed WebSocket used by camera lifecycle tests."""
+
+    def __init__(self) -> None:
+        self.messages: asyncio.Queue[SimpleNamespace] = asyncio.Queue()
+        self.sent: list[str] = []
+        self.closed = False
+        self.closed_event = asyncio.Event()
+
+    async def send_str(self, value: str) -> None:
+        """Record a text message."""
+        self.sent.append(value)
+
+    async def receive(self, *, timeout: float) -> SimpleNamespace:
+        """Return the next queued device message."""
+        return await self.messages.get()
+
+    async def close(self) -> None:
+        """Close the fake WebSocket."""
+        self.closed = True
+        self.closed_event.set()
+
+
+class _FakeSession:
+    """Create and track fake camera WebSockets."""
+
+    def __init__(self) -> None:
+        self.connections: list[_FakeWebSocket] = []
+        self.connected = asyncio.Event()
+        self.urls: list[str] = []
+
+    async def ws_connect(self, url: str) -> _FakeWebSocket:
+        """Open a fake WebSocket."""
+        self.urls.append(url)
+        websocket = _FakeWebSocket()
+        self.connections.append(websocket)
+        self.connected.set()
+        return websocket
+
+
+def _fake_aiohttp_module() -> ModuleType:
+    """Return the minimal aiohttp surface used by the protocol client."""
+    module = ModuleType("aiohttp")
+    module.ClientError = _FakeClientError
+    module.WSMsgType = _FakeWSMsgType
+    return module
+
+
+async def _wait_until(predicate) -> None:
+    """Wait briefly for an async lifecycle side effect."""
+    async with asyncio.timeout(1):
+        while not predicate():
+            await asyncio.sleep(0)
 
 
 class MakeraZ1ClientTest(unittest.IsolatedAsyncioTestCase):
@@ -49,7 +122,11 @@ class MakeraZ1ClientTest(unittest.IsolatedAsyncioTestCase):
                         b"{S:0,10000,0,0,26,23|G:0,0,0,0,0|"
                         b"P:0,0|I:0|E:0,0,0,0,0,0,1,0|RSSI:-63}",
                     ),
-                    build_control_packet(0x83, b"State: off, Current RPM:     0  Target RPM: 10000  PWM value: 0.000\n"),
+                    build_control_packet(
+                        0x83,
+                        b"State: off, Current RPM:     0  "
+                        b"Target RPM: 10000  PWM value: 0.000\n",
+                    ),
                     build_control_packet(0x83, b"sn = Z1P012601K012171\n"),
                     build_control_packet(0x83, b"model = Z1, 4, 1, 0, Idle\n"),
                     build_control_packet(0x83, b"version = 1.1.2.0.1.13\n"),
@@ -79,6 +156,90 @@ class MakeraZ1ClientTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(snapshot.identity.firmware_version, "1.1.2.0.1.13")
         self.assertEqual(snapshot.spindle_report.current_rpm, 0.0)
         self.assertEqual(snapshot.diagnostic_fields["rssi"].value, -63.0)
+
+    async def test_camera_image_opens_and_releases_on_demand_stream(self) -> None:
+        session = _FakeSession()
+        client = MakeraZ1Client("127.0.0.1", session=session)
+        self.addAsyncCleanup(client.async_close)
+        jpeg = b"\xff\xd8one-frame\xff\xd9"
+
+        with patch.dict(sys.modules, {"aiohttp": _fake_aiohttp_module()}):
+            image_task = asyncio.create_task(client.async_get_camera_image())
+            await asyncio.wait_for(session.connected.wait(), timeout=1)
+            websocket = session.connections[0]
+            await _wait_until(lambda: websocket.sent == ["start_stream"])
+            await websocket.messages.put(
+                SimpleNamespace(type=_FakeWSMsgType.BINARY, data=jpeg)
+            )
+
+            self.assertEqual(await asyncio.wait_for(image_task, timeout=1), jpeg)
+            await asyncio.wait_for(websocket.closed_event.wait(), timeout=1)
+
+        self.assertEqual(session.urls, ["ws://127.0.0.1:82/ws_video"])
+        self.assertEqual(websocket.sent, ["start_stream", "stop_stream"])
+
+    async def test_camera_consumers_share_one_upstream_connection(self) -> None:
+        session = _FakeSession()
+        client = MakeraZ1Client("127.0.0.1", session=session)
+        self.addAsyncCleanup(client.async_close)
+        first_jpeg = b"\xff\xd8first\xff\xd9"
+        second_jpeg = b"\xff\xd8second\xff\xd9"
+        first_frames = client.async_camera_frames()
+        second_frames = client.async_camera_frames()
+
+        with patch.dict(sys.modules, {"aiohttp": _fake_aiohttp_module()}):
+            first_task = asyncio.create_task(anext(first_frames))
+            second_task = asyncio.create_task(anext(second_frames))
+            await asyncio.wait_for(session.connected.wait(), timeout=1)
+            websocket = session.connections[0]
+            await websocket.messages.put(
+                SimpleNamespace(type=_FakeWSMsgType.BINARY, data=first_jpeg)
+            )
+
+            self.assertEqual(await asyncio.wait_for(first_task, timeout=1), first_jpeg)
+            self.assertEqual(await asyncio.wait_for(second_task, timeout=1), first_jpeg)
+            self.assertEqual(len(session.connections), 1)
+
+            await first_frames.aclose()
+            await asyncio.sleep(0)
+            self.assertFalse(websocket.closed)
+
+            second_task = asyncio.create_task(anext(second_frames))
+            await websocket.messages.put(
+                SimpleNamespace(type=_FakeWSMsgType.BINARY, data=second_jpeg)
+            )
+            self.assertEqual(
+                await asyncio.wait_for(second_task, timeout=1), second_jpeg
+            )
+
+            await second_frames.aclose()
+            await asyncio.wait_for(websocket.closed_event.wait(), timeout=1)
+
+        self.assertEqual(len(session.connections), 1)
+        self.assertEqual(websocket.sent, ["start_stream", "stop_stream"])
+
+    async def test_camera_busy_message_ends_current_subscription(self) -> None:
+        session = _FakeSession()
+        client = MakeraZ1Client("127.0.0.1", session=session)
+        self.addAsyncCleanup(client.async_close)
+        frames = client.async_camera_frames()
+
+        with patch.dict(sys.modules, {"aiohttp": _fake_aiohttp_module()}):
+            frame_task = asyncio.create_task(anext(frames))
+            await asyncio.wait_for(session.connected.wait(), timeout=1)
+            websocket = session.connections[0]
+            await websocket.messages.put(
+                SimpleNamespace(
+                    type=_FakeWSMsgType.TEXT,
+                    data="The video stream is occupied",
+                )
+            )
+
+            with self.assertRaises(MakeraZ1CameraBusyError):
+                await asyncio.wait_for(frame_task, timeout=1)
+            await asyncio.wait_for(websocket.closed_event.wait(), timeout=1)
+
+        self.assertEqual(websocket.sent, ["start_stream", "stop_stream"])
 
 
 if __name__ == "__main__":

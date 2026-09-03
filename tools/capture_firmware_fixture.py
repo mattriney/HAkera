@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from datetime import UTC, datetime
 import json
 import pathlib
 import re
 import sys
+from datetime import UTC, datetime
 from typing import Any
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -53,7 +53,9 @@ async def async_capture(host: str, firmware: str | None, output: pathlib.Path) -
     }
 
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    output.write_text(
+        json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
 
 def main() -> None:

@@ -13,8 +13,8 @@ protocol client.
   feeds all normal entities.
 - `sensor.py` and `binary_sensor.py` expose only parsed status and diagnostic
   fields.
-- `camera.py` implements still-image requests without enabling Home Assistant's
-  stream feature, because the Z1 camera source is not RTSP or HTTP MJPEG.
+- `camera.py` converts the Z1 WebSocket JPEG feed into Home Assistant's direct
+  MJPEG camera proxy without claiming ffmpeg/HLS stream support.
 - `diagnostics.py` redacts host and serial identifiers before exporting support
   data.
 
@@ -42,11 +42,15 @@ read-only connection with reconnect/backoff and the same command allowlist.
 
 ## Camera model
 
-The Z1 exposes complete JPEG frames through `ws://<host>:82/ws_video`. The
-firmware appears to arbitrate a single stream owner, so this integration opens
-the WebSocket only inside `async_camera_image`, sends `start_stream`, returns
-the first JPEG frame, then sends `stop_stream` and closes the socket.
+The Z1 exposes complete JPEG frames through `ws://<host>:82/ws_video`. An
+in-process broker owns at most one upstream WebSocket, fans current frames out to
+all Home Assistant consumers, and drops stale queued frames for a slow consumer.
+The first still or live viewer starts the upstream stream; the final consumer
+leaving sends `stop_stream` and closes it. Still requests subscribe to the same
+broker, so they do not collide with an active dashboard stream.
 
-This is intentionally snapshot-like. A future streaming implementation should
-use an internal proxy/broker that tracks Home Assistant viewers and releases the
-Z1 WebSocket when the viewer count reaches zero.
+`camera.py` overrides `handle_async_mjpeg_stream` to wrap those JPEG frames in a
+multipart MJPEG response at Home Assistant's authenticated
+`/api/camera_proxy_stream` endpoint. The entity deliberately keeps
+`supported_features` at zero: Home Assistant's `STREAM` feature represents an
+ffmpeg-readable HLS source or native WebRTC, neither of which the Z1 provides.

@@ -82,22 +82,43 @@ Binary sensors:
 
 Camera:
 
-- On-demand still camera using the Z1 WebSocket JPEG stream
+- On-demand still images using the Z1 WebSocket JPEG stream
+- On-demand live MJPEG video proxied through Home Assistant
 
-Home Assistant's normal camera stream support expects an ffmpeg-compatible
-source such as RTSP or HTTP MJPEG. The Z1 currently exposes a proprietary
-WebSocket JPEG stream instead, so this integration returns still JPEG images on
-demand and closes the WebSocket immediately afterward. That avoids holding the
-Z1's single camera stream channel when no viewer is asking for an image.
+The integration opens the Z1 camera WebSocket only while Home Assistant is
+requesting a still or displaying a live view. It converts the proprietary
+WebSocket JPEG feed into Home Assistant's authenticated MJPEG camera proxy and
+sends `stop_stream` when the last viewer disconnects. Concurrent Home Assistant
+viewers share one upstream connection because the Z1 firmware appears to permit
+only one camera stream owner.
+
+To keep a dashboard card live while it is visible, select `Live` for its camera
+view or use this YAML pattern:
+
+```yaml
+type: picture-entity
+entity: camera.your_z1_camera
+camera_image: camera.your_z1_camera
+camera_view: live
+show_name: false
+show_state: false
+```
+
+Replace `camera.your_z1_camera` with the camera entity ID created on your system.
+
+The camera intentionally does not advertise Home Assistant's `STREAM` feature.
+That feature means an ffmpeg/HLS or native WebRTC source and also enables
+recording services; the Z1 exposes neither. Its direct MJPEG proxy is live video,
+but it is not an HLS/WebRTC or recording source.
 
 ## Known limitations
 
 - No write actions are exposed.
-- The camera entity is snapshot/on-demand only; true live streaming will need an
-  internal MJPEG proxy or another Home Assistant streaming adapter.
 - Studio and Home Assistant can contend for the same Z1 camera stream. If Studio
   already owns the stream, Home Assistant may return no camera image until the
   Studio preview is closed.
+- Live video is MJPEG without audio. It is intended for viewing in Home Assistant,
+  not for `camera.record` or `camera.play_stream`.
 - Discovery is not implemented yet. Setup is manual by host/IP.
 - The Home Assistant config flow requires the controller to return its serial
   number with `sn-get`; this gives the config entry a stable unique ID.
