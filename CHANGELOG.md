@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+- Fixes camera entity initialization on Home Assistant 2026.8 and later.
+- Uses the current Home Assistant camera feature enum.
+- Corrects the active-low Z1 lid sensor polarity.
+
 ## 0.2.0
 
 - Adds on-demand live MJPEG video through Home Assistant's camera proxy.

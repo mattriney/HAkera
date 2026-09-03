@@ -74,6 +74,11 @@ class RepositoryContractTest(unittest.TestCase):
         present = {path.name for path in COMPONENT.iterdir()}
         self.assertTrue(forbidden.isdisjoint(present))
 
+    def test_camera_initializes_home_assistant_camera_base(self) -> None:
+        source = (COMPONENT / "camera.py").read_text(encoding="utf-8")
+        self.assertIn("Camera.__init__(self)", source)
+        self.assertIn("CameraEntityFeature(0)", source)
+
 
 if __name__ == "__main__":
     unittest.main()

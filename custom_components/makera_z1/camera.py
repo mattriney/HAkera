@@ -6,7 +6,7 @@ import logging
 from contextlib import suppress
 
 from aiohttp import web
-from homeassistant.components.camera import Camera
+from homeassistant.components.camera import Camera, CameraEntityFeature
 from homeassistant.const import CONTENT_TYPE_MULTIPART
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -38,12 +38,14 @@ class MakeraZ1Camera(MakeraZ1Entity, Camera):
 
     _attr_content_type = "image/jpeg"
     _attr_frame_interval = 1.0
-    _attr_supported_features = 0
+    _attr_supported_features = CameraEntityFeature(0)
     _attr_translation_key = "live_view"
 
     def __init__(self, coordinator) -> None:
         """Initialize the camera."""
         super().__init__(coordinator, "camera")
+        # CoordinatorEntity does not cooperatively initialize Camera in this MRO.
+        Camera.__init__(self)
         self._stream_clients = 0
 
     @property

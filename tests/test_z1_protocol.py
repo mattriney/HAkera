@@ -13,9 +13,11 @@ sys.path.insert(0, str(COMPONENT))
 
 from z1 import (  # noqa: E402
     ControlPacketParser,
+    DiagnosticField,
     MachineStreamParser,
     build_control_packet,
     crc16_xmodem,
+    diagnostic_switch_is_active,
     map_diagnostic_fields,
     parse_controller_info_line,
     parse_diagnostic_packet,
@@ -92,6 +94,17 @@ class MakeraZ1ProtocolTest(unittest.TestCase):
         self.assertEqual(fields["spindleTemperature"].value, 26.0)
         self.assertEqual(fields["powerTemperature"].value, 23.0)
         self.assertEqual(fields["rssi"].value, -63.0)
+
+    def test_diagnostic_switch_active_low_polarity(self) -> None:
+        active = DiagnosticField("Switch", "switch", None, True, 1.0)
+        inactive = DiagnosticField("Switch", "switch", None, True, 0.0)
+        unknown = DiagnosticField("Switch", "switch", None, False, None)
+
+        self.assertTrue(diagnostic_switch_is_active(active))
+        self.assertFalse(diagnostic_switch_is_active(inactive))
+        self.assertFalse(diagnostic_switch_is_active(active, active_low=True))
+        self.assertTrue(diagnostic_switch_is_active(inactive, active_low=True))
+        self.assertIsNone(diagnostic_switch_is_active(unknown, active_low=True))
 
     def test_controller_info_lines(self) -> None:
         self.assertEqual(

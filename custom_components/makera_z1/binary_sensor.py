@@ -17,7 +17,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import MakeraZ1ConfigEntry
 from .coordinator import MakeraZ1Coordinator
 from .entity import MakeraZ1Entity
-from .z1 import MakeraZ1Snapshot
+from .z1 import MakeraZ1Snapshot, diagnostic_switch_is_active
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -28,15 +28,16 @@ class MakeraZ1BinarySensorEntityDescription(BinarySensorEntityDescription):
     always_available: bool = False
 
 
-def _diagnostic_active(field_id: str) -> Callable[[MakeraZ1Coordinator], bool | None]:
+def _diagnostic_active(
+    field_id: str, *, active_low: bool = False
+) -> Callable[[MakeraZ1Coordinator], bool | None]:
     def value(coordinator: MakeraZ1Coordinator) -> bool | None:
         snapshot = coordinator.data
         if not snapshot:
             return None
-        item = snapshot.diagnostic_fields.get(field_id)
-        if not item or not item.known:
-            return None
-        return item.value != 0
+        return diagnostic_switch_is_active(
+            snapshot.diagnostic_fields.get(field_id), active_low=active_low
+        )
 
     return value
 
@@ -69,7 +70,7 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[MakeraZ1BinarySensorEntityDescription, ...] = 
         key="lid",
         translation_key="lid",
         device_class=BinarySensorDeviceClass.DOOR,
-        value_fn=_diagnostic_active("cover"),
+        value_fn=_diagnostic_active("cover", active_low=True),
     ),
     MakeraZ1BinarySensorEntityDescription(
         key="work_light",

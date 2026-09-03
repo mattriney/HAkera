@@ -114,6 +114,16 @@ class DiagnosticField:
     value: float | None
 
 
+def diagnostic_switch_is_active(
+    field: DiagnosticField | None, *, active_low: bool = False
+) -> bool | None:
+    """Translate a mapped firmware switch field into its logical state."""
+    if field is None or not field.known or field.value is None:
+        return None
+    active = field.value != 0
+    return not active if active_low else active
+
+
 @dataclass(frozen=True, slots=True)
 class ControllerIdentity:
     """Read-only controller identity."""
