@@ -10,7 +10,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 COMPONENT = ROOT / "custom_components" / "makera_z1"
 FIXTURES = ROOT / "tests" / "fixtures"
-sys.path.insert(0, str(COMPONENT))
+sys.path.append(str(COMPONENT))
 
 from z1 import (  # noqa: E402
     ControllerIdentity,

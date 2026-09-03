@@ -19,5 +19,8 @@ DEFAULT_SCAN_INTERVAL = timedelta(seconds=5)
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
     Platform.CAMERA,
+    Platform.FAN,
+    Platform.LIGHT,
+    Platform.SELECT,
     Platform.SENSOR,
 ]

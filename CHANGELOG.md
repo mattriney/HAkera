@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0
+
+- Adds feedback-backed work-light control.
+- Adds feedback-backed spindle-fan, control-box-fan, and external-output controls
+  with percentage power.
+- Adds all 15 firmware camera resolution choices and verifies changes from live
+  JPEG dimensions.
+- Retries one camera resolution request when the firmware does not apply the
+  first request.
+
 ## 0.2.1
 
 - Fixes camera entity initialization on Home Assistant 2026.8 and later.

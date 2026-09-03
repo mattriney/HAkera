@@ -74,8 +74,10 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[MakeraZ1BinarySensorEntityDescription, ...] = 
     ),
     MakeraZ1BinarySensorEntityDescription(
         key="work_light",
-        translation_key="work_light",
+        translation_key="work_light_feedback",
         device_class=BinarySensorDeviceClass.LIGHT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
         value_fn=_diagnostic_active("workLight"),
     ),
     MakeraZ1BinarySensorEntityDescription(

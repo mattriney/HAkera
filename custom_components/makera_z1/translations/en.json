@@ -24,7 +24,7 @@
       "alarm": { "name": "Alarm" },
       "spindle_running": { "name": "Spindle running" },
       "lid": { "name": "Lid" },
-      "work_light": { "name": "Work light" },
+      "work_light_feedback": { "name": "Work light feedback" },
       "emergency_stop": { "name": "Emergency stop" },
       "probe": { "name": "Probe" },
       "tool_setter": { "name": "Tool setter" },
@@ -36,6 +36,17 @@
     },
     "camera": {
       "live_view": { "name": "Camera" }
+    },
+    "fan": {
+      "spindle_fan": { "name": "Spindle fan" },
+      "power_fan": { "name": "Control-box fan" },
+      "external_output": { "name": "External output (vacuum)" }
+    },
+    "light": {
+      "work_light": { "name": "Work light" }
+    },
+    "select": {
+      "camera_resolution": { "name": "Camera resolution" }
     },
     "sensor": {
       "machine_state": { "name": "State" },
@@ -60,6 +71,20 @@
       "work_y": { "name": "Work Y" },
       "work_z": { "name": "Work Z" },
       "work_a": { "name": "Work A" }
+    }
+  },
+  "exceptions": {
+    "work_light_command_failed": {
+      "message": "Could not set the work light: {error}"
+    },
+    "output_command_failed": {
+      "message": "Could not set {output}: {error}"
+    },
+    "invalid_camera_resolution": {
+      "message": "Unsupported camera resolution: {option}"
+    },
+    "camera_resolution_command_failed": {
+      "message": "Could not set the camera resolution: {error}"
     }
   }
 }

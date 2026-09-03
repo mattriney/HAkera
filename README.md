@@ -1,19 +1,18 @@
 # Makera Z1 for Home Assistant
 
-Read-only Home Assistant custom integration for monitoring a Makera Z1 / Z1 Pro
-over the local network.
+Home Assistant custom integration for monitoring a Makera Z1 / Z1 Pro and
+controlling a small set of non-motion accessories over the local network.
 
-This repository is intentionally scoped to monitoring. It does not expose motion,
-spindle, tool-change, probing, file upload, arbitrary G-code, or job-control
-actions.
+This repository does not expose motion, the spindle motor, tool change, probing,
+file upload, arbitrary G-code, or job-control actions.
 
 ## Current status
 
-This is an initial custom-component foundation built from local reverse
-engineering and live testing of one Z1 Pro. The TCP status/diagnostics protocol
-and camera WebSocket path are implemented, but the integration still needs live
-testing inside a real Home Assistant instance before it should be treated as
-production-ready.
+This custom component was built from local reverse engineering and live testing
+of one Z1 Pro running firmware `1.1.2.0.1.13`. Its setup, status telemetry, lid
+state, spindle telemetry, and on-demand camera have been tested on Home Assistant
+`2026.8.3`. Accessory controls and camera resolution selection remain early
+features that should be tested locally before being placed in automations.
 
 Confirmed device interfaces used here:
 
@@ -22,6 +21,7 @@ Confirmed device interfaces used here:
 - Camera start command: `start_stream`
 - Camera stop command: `stop_stream`
 - Binary camera frames: complete JPEG images
+- Camera resolution: `POST http://<z1-host>/api/camera/resolution`
 
 ## Installation
 
@@ -47,8 +47,6 @@ Restart Home Assistant, then add the integration from the UI.
 
 ## Entities
 
-The first pass exposes only read-only entities.
-
 Sensors:
 
 - Machine state
@@ -72,7 +70,7 @@ Binary sensors:
 - Connected
 - Alarm
 - Spindle running
-- Work light
+- Work light feedback, disabled by default because the light entity has feedback
 - Lid
 - Emergency stop
 - Probe
@@ -85,12 +83,37 @@ Camera:
 - On-demand still images using the Z1 WebSocket JPEG stream
 - On-demand live MJPEG video proxied through Home Assistant
 
+Light:
+
+- Work light, with controller-reported state
+
+Fans and powered outputs:
+
+- Spindle fan, with reported power
+- Control-box fan, with reported power
+- External output (vacuum), with reported power
+
+Each powered output accepts Home Assistant percentages in 5% steps. The entity
+continues to show the controller's exact reported value, which can differ from a
+manual command while firmware-controlled cooling is active.
+
+Select:
+
+- Camera resolution, covering all 15 firmware frame-size values from `160x120`
+  through `1600x1200`
+
 The integration opens the Z1 camera WebSocket only while Home Assistant is
 requesting a still or displaying a live view. It converts the proprietary
 WebSocket JPEG feed into Home Assistant's authenticated MJPEG camera proxy and
 sends `stop_stream` when the last viewer disconnects. Concurrent Home Assistant
 viewers share one upstream connection because the Z1 firmware appears to permit
 only one camera stream owner.
+
+Changing camera resolution temporarily subscribes to that same on-demand stream,
+sends the setting, and verifies the resulting JPEG dimensions. The request is
+retried once because firmware `1.1.2.0.1.13` can ignore the first request. Before
+the first camera view or selection after a restart, the resolution entity is
+`Unknown` because the firmware exposes no current-resolution query.
 
 To keep a dashboard card live while it is visible, select `Live` for its camera
 view or use this YAML pattern:
@@ -113,7 +136,8 @@ but it is not an HLS/WebRTC or recording source.
 
 ## Known limitations
 
-- No write actions are exposed.
+- Write actions are limited to the work light, two cooling fans, external output,
+  and camera resolution. Motion, spindle-motor, and job controls are not exposed.
 - Studio and Home Assistant can contend for the same Z1 camera stream. If Studio
   already owns the stream, Home Assistant may return no camera image until the
   Studio preview is closed.
@@ -162,10 +186,11 @@ hacs.json                     HACS metadata
 
 ## Safety posture
 
-The Z1 is a CNC machine. Remote control is intentionally out of scope here.
-Future write-capable work should remain in a separate integration or require a
-separate explicit safety design, because Home Assistant automations and remote
-dashboards are easy places to trigger an unsafe machine action by accident.
+The Z1 is a CNC machine. This integration limits writes to lights, cooling or
+vacuum-style outputs, and camera configuration. Machine motion, spindle-motor
+control, probing, and job control remain out of scope because Home Assistant
+automations and remote dashboards can trigger actions without an operator at the
+machine.
 
 ## License
 

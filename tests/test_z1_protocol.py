@@ -9,15 +9,19 @@ import unittest
 COMPONENT = (
     pathlib.Path(__file__).resolve().parents[1] / "custom_components" / "makera_z1"
 )
-sys.path.insert(0, str(COMPONENT))
+sys.path.append(str(COMPONENT))
 
 from z1 import (  # noqa: E402
+    CAMERA_RESOLUTIONS,
+    OUTPUT_CONTROLS,
     ControlPacketParser,
     DiagnosticField,
     MachineStreamParser,
     build_control_packet,
+    build_output_command,
     crc16_xmodem,
     diagnostic_switch_is_active,
+    jpeg_dimensions,
     map_diagnostic_fields,
     parse_controller_info_line,
     parse_diagnostic_packet,
@@ -94,6 +98,12 @@ class MakeraZ1ProtocolTest(unittest.TestCase):
         self.assertEqual(fields["spindleTemperature"].value, 26.0)
         self.assertEqual(fields["powerTemperature"].value, 23.0)
         self.assertEqual(fields["rssi"].value, -63.0)
+        self.assertEqual(fields["spindleFan"].value, 0.0)
+        self.assertEqual(fields["spindleFanPower"].value, 0.0)
+        self.assertEqual(fields["powerFan"].value, 1.0)
+        self.assertEqual(fields["powerFanPower"].value, 31.0)
+        self.assertEqual(fields["externalOutput"].value, 0.0)
+        self.assertEqual(fields["externalOutputPower"].value, 0.0)
 
     def test_diagnostic_switch_active_low_polarity(self) -> None:
         active = DiagnosticField("Switch", "switch", None, True, 1.0)
@@ -155,6 +165,61 @@ class MakeraZ1ProtocolTest(unittest.TestCase):
             parse_spindle_report_line("Current RPM: 0"),
             {"current_rpm": 0.0},
         )
+
+    def test_output_commands_are_built_from_fixed_definitions(self) -> None:
+        self.assertEqual(
+            build_output_command(OUTPUT_CONTROLS["work_light"], True),
+            ("M821", None),
+        )
+        self.assertEqual(
+            build_output_command(OUTPUT_CONTROLS["work_light"], False),
+            ("M822", None),
+        )
+        self.assertEqual(
+            build_output_command(OUTPUT_CONTROLS["spindle_fan"], True, 35),
+            ("M811S35", 35),
+        )
+        self.assertEqual(
+            build_output_command(OUTPUT_CONTROLS["power_fan"], True),
+            ("M801S20", 20),
+        )
+        self.assertEqual(
+            build_output_command(OUTPUT_CONTROLS["external_output"], True, 100),
+            ("M851S100", 100),
+        )
+        self.assertEqual(
+            build_output_command(OUTPUT_CONTROLS["external_output"], False, 75),
+            ("M852", None),
+        )
+
+        with self.assertRaisesRegex(ValueError, "increments of 5"):
+            build_output_command(OUTPUT_CONTROLS["power_fan"], True, 22)
+        with self.assertRaisesRegex(ValueError, "between 5 and 100"):
+            build_output_command(OUTPUT_CONTROLS["external_output"], True, 0)
+        with self.assertRaisesRegex(ValueError, "does not support power"):
+            build_output_command(OUTPUT_CONTROLS["work_light"], True, 50)
+
+    def test_camera_resolution_table_and_jpeg_dimensions(self) -> None:
+        self.assertEqual(len(CAMERA_RESOLUTIONS), 15)
+        self.assertEqual(
+            (CAMERA_RESOLUTIONS[9].value, CAMERA_RESOLUTIONS[9].option),
+            (10, "640x480"),
+        )
+        jpeg = _jpeg_with_dimensions(640, 480)
+        self.assertEqual(jpeg_dimensions(jpeg), (640, 480))
+        self.assertIsNone(jpeg_dimensions(b"not-a-jpeg"))
+
+
+def _jpeg_with_dimensions(width: int, height: int) -> bytes:
+    """Build a minimal JPEG header with a baseline SOF segment."""
+    return b"".join(
+        (
+            b"\xff\xd8\xff\xc0\x00\x11\x08",
+            height.to_bytes(2, "big"),
+            width.to_bytes(2, "big"),
+            b"\x03\x01\x11\x00\x02\x11\x00\x03\x11\x00\xff\xd9",
+        )
+    )
 
 
 if __name__ == "__main__":

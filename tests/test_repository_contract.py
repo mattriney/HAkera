@@ -11,13 +11,18 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 COMPONENT_ROOT = ROOT / "custom_components"
 COMPONENT = COMPONENT_ROOT / "makera_z1"
-sys.path.insert(0, str(COMPONENT))
+sys.path.append(str(COMPONENT))
 
-from z1 import IDENTITY_COMMANDS, POLL_COMMANDS, REALTIME_STATUS  # noqa: E402
+from z1 import (  # noqa: E402
+    IDENTITY_COMMANDS,
+    OUTPUT_CONTROLS,
+    POLL_COMMANDS,
+    REALTIME_STATUS,
+)
 
 
 class RepositoryContractTest(unittest.TestCase):
-    """Validate publishable-repo and read-only integration contracts."""
+    """Validate publishable-repo and constrained-control contracts."""
 
     def test_repo_contains_one_hacs_integration(self) -> None:
         integrations = [
@@ -37,36 +42,60 @@ class RepositoryContractTest(unittest.TestCase):
         self.assertEqual(manifest["requirements"], [])
         self.assertRegex(manifest["version"], r"^\d+\.\d+\.\d+")
 
+        pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["version"], pyproject["project"]["version"])
+
     def test_hacs_metadata_is_valid(self) -> None:
         hacs = json.loads((ROOT / "hacs.json").read_text(encoding="utf-8"))
         self.assertEqual(hacs["name"], "Makera Z1")
         self.assertIn("sensor", hacs["domains"])
         self.assertIn("binary_sensor", hacs["domains"])
         self.assertIn("camera", hacs["domains"])
+        self.assertIn("fan", hacs["domains"])
+        self.assertIn("light", hacs["domains"])
+        self.assertIn("select", hacs["domains"])
 
     def test_json_files_are_valid(self) -> None:
         for path in ROOT.rglob("*.json"):
             with self.subTest(path=path.relative_to(ROOT).as_posix()):
                 json.loads(path.read_text(encoding="utf-8"))
 
+    def test_new_platforms_have_translated_entities(self) -> None:
+        strings = json.loads((COMPONENT / "strings.json").read_text(encoding="utf-8"))
+        entities = strings["entity"]
+        self.assertEqual(
+            set(entities["fan"]), {"spindle_fan", "power_fan", "external_output"}
+        )
+        self.assertIn("work_light", entities["light"])
+        self.assertIn("camera_resolution", entities["select"])
+
     def test_pyproject_is_valid_toml(self) -> None:
         data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
         self.assertEqual(data["project"]["name"], "home-assistant-makera-z1")
         self.assertEqual(data["project"]["requires-python"], ">=3.14.2")
 
-    def test_runtime_command_allowlist_is_read_only(self) -> None:
+    def test_runtime_command_allowlist_is_constrained(self) -> None:
         self.assertEqual(REALTIME_STATUS, 0x3F)
         self.assertEqual(POLL_COMMANDS, ("diagnose", "M957"))
         self.assertEqual(IDENTITY_COMMANDS, ("sn-get", "model", "version", "ftype"))
+        self.assertEqual(
+            {
+                key: (value.command_on, value.command_off)
+                for key, value in OUTPUT_CONTROLS.items()
+            },
+            {
+                "work_light": ("M821", "M822"),
+                "spindle_fan": ("M811S{power}", "M812"),
+                "power_fan": ("M801S{power}", "M802"),
+                "external_output": ("M851S{power}", "M852"),
+            },
+        )
 
-    def test_no_write_capable_platforms_or_services_are_exposed(self) -> None:
+    def test_no_motion_or_arbitrary_command_platforms_are_exposed(self) -> None:
         forbidden = {
             "button.py",
             "cover.py",
-            "fan.py",
-            "light.py",
             "number.py",
-            "select.py",
             "services.yaml",
             "switch.py",
             "text.py",

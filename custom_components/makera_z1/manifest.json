@@ -9,5 +9,5 @@
   "issue_tracker": "https://github.com/your-account/home-assistant-makera-z1/issues",
   "loggers": ["custom_components.makera_z1"],
   "requirements": [],
-  "version": "0.2.1"
+  "version": "0.3.0"
 }

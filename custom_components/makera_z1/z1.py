@@ -26,6 +26,7 @@ REALTIME_STATUS: Final = 0x3F
 
 IDENTITY_COMMANDS: Final = ("sn-get", "model", "version", "ftype")
 POLL_COMMANDS: Final = ("diagnose", "M957")
+WORK_LIGHT_COMMANDS: Final = {False: "M822", True: "M821"}
 
 HOST_RE: Final = re.compile(
     r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*"
@@ -122,6 +123,100 @@ def diagnostic_switch_is_active(
         return None
     active = field.value != 0
     return not active if active_low else active
+
+
+@dataclass(frozen=True, slots=True)
+class CameraResolution:
+    """One firmware-supported live camera frame size."""
+
+    value: int
+    width: int
+    height: int
+
+    @property
+    def option(self) -> str:
+        """Return the Home Assistant select option."""
+        return f"{self.width}x{self.height}"
+
+
+CAMERA_RESOLUTIONS: Final = (
+    CameraResolution(1, 160, 120),
+    CameraResolution(2, 128, 128),
+    CameraResolution(3, 176, 144),
+    CameraResolution(4, 240, 176),
+    CameraResolution(5, 240, 240),
+    CameraResolution(6, 320, 240),
+    CameraResolution(7, 320, 320),
+    CameraResolution(8, 400, 296),
+    CameraResolution(9, 480, 320),
+    CameraResolution(10, 640, 480),
+    CameraResolution(11, 800, 600),
+    CameraResolution(12, 1024, 768),
+    CameraResolution(13, 1280, 720),
+    CameraResolution(14, 1280, 1024),
+    CameraResolution(15, 1600, 1200),
+)
+CAMERA_RESOLUTION_OPTIONS: Final = tuple(
+    resolution.option for resolution in CAMERA_RESOLUTIONS
+)
+
+
+@dataclass(frozen=True, slots=True)
+class OutputControl:
+    """One fixed, feedback-backed Z1 output control."""
+
+    label: str
+    command_on: str
+    command_off: str
+    state_field: str
+    power_field: str | None = None
+    minimum_power: int | None = None
+    maximum_power: int | None = None
+    power_step: int | None = None
+    default_power: int | None = None
+
+
+OUTPUT_CONTROLS: Final[dict[str, OutputControl]] = {
+    "work_light": OutputControl(
+        label="work light",
+        command_on=WORK_LIGHT_COMMANDS[True],
+        command_off=WORK_LIGHT_COMMANDS[False],
+        state_field="workLight",
+    ),
+    "spindle_fan": OutputControl(
+        label="spindle fan",
+        command_on="M811S{power}",
+        command_off="M812",
+        state_field="spindleFan",
+        power_field="spindleFanPower",
+        minimum_power=5,
+        maximum_power=100,
+        power_step=5,
+        default_power=20,
+    ),
+    "power_fan": OutputControl(
+        label="control-box fan",
+        command_on="M801S{power}",
+        command_off="M802",
+        state_field="powerFan",
+        power_field="powerFanPower",
+        minimum_power=5,
+        maximum_power=100,
+        power_step=5,
+        default_power=20,
+    ),
+    "external_output": OutputControl(
+        label="external output",
+        command_on="M851S{power}",
+        command_off="M852",
+        state_field="externalOutput",
+        power_field="externalOutputPower",
+        minimum_power=5,
+        maximum_power=100,
+        power_step=5,
+        default_power=5,
+    ),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,6 +329,18 @@ Z1_DIAGNOSTIC_FIELDS: Final[dict[str, _DiagnosticFieldDefinition]] = {
     "emergencyStop": _DiagnosticFieldDefinition("E-stop", "I", 0, "switch"),
     "cover": _DiagnosticFieldDefinition("Cover", "E", 5, "switch"),
     "workLight": _DiagnosticFieldDefinition("Work light", "G", 0, "switch"),
+    "spindleFan": _DiagnosticFieldDefinition("Spindle fan", "F", 0, "switch"),
+    "spindleFanPower": _DiagnosticFieldDefinition(
+        "Spindle fan power", "F", 1, "number", "%"
+    ),
+    "powerFan": _DiagnosticFieldDefinition("Control-box fan", "V", 0, "switch"),
+    "powerFanPower": _DiagnosticFieldDefinition(
+        "Control-box fan power", "V", 1, "number", "%"
+    ),
+    "externalOutput": _DiagnosticFieldDefinition("External output", "G", 3, "switch"),
+    "externalOutputPower": _DiagnosticFieldDefinition(
+        "External output power", "G", 4, "number", "%"
+    ),
     "externalInput": _DiagnosticFieldDefinition("External input", "G", 2, "switch"),
     "spindleTemperature": _DiagnosticFieldDefinition(
         "Spindle temp", "S", 4, "number", "C"
@@ -244,7 +351,7 @@ Z1_DIAGNOSTIC_FIELDS: Final[dict[str, _DiagnosticFieldDefinition]] = {
 
 
 class MakeraZ1Client:
-    """Small async client for read-only Makera Z1 monitoring."""
+    """Small async client for Makera Z1 monitoring and limited outputs."""
 
     def __init__(
         self,
@@ -267,6 +374,9 @@ class MakeraZ1Client:
         self.camera_timeout = camera_timeout
         self._identity = ControllerIdentity()
         self._spindle_report = SpindleReport()
+        self._control_lock = asyncio.Lock()
+        self._camera_setting_lock = asyncio.Lock()
+        self._camera_resolution: CameraResolution | None = None
         self._camera_broker = _CameraStreamBroker(self)
 
     async def async_fetch_snapshot(
@@ -275,6 +385,15 @@ class MakeraZ1Client:
         include_identity: bool | None = None,
     ) -> MakeraZ1Snapshot:
         """Fetch one read-only status snapshot from the control socket."""
+        async with self._control_lock:
+            return await self._async_fetch_snapshot(include_identity=include_identity)
+
+    async def _async_fetch_snapshot(
+        self,
+        *,
+        include_identity: bool | None = None,
+    ) -> MakeraZ1Snapshot:
+        """Fetch one snapshot while the control lock is held."""
         if include_identity is None:
             include_identity = self._identity.serial is None
 
@@ -382,6 +501,231 @@ class MakeraZ1Client:
             diagnostic_fields=map_diagnostic_fields(diagnostic),
             identity=identity,
             spindle_report=spindle_report,
+        )
+
+    @property
+    def camera_resolution_option(self) -> str | None:
+        """Return the observed or most recently selected camera resolution."""
+        return self._camera_resolution.option if self._camera_resolution else None
+
+    async def async_set_work_light(self, enabled: bool) -> DiagnosticStatus:
+        """Set the work light and require matching diagnostic feedback."""
+        return await self.async_set_output("work_light", enabled)
+
+    async def async_set_output(
+        self,
+        output_id: str,
+        enabled: bool,
+        power: int | float | None = None,
+    ) -> DiagnosticStatus:
+        """Set one allowlisted output and require matching feedback."""
+        definition = OUTPUT_CONTROLS.get(output_id)
+        if definition is None:
+            raise ValueError("Unsupported Z1 output control.")
+        command, _ = build_output_command(definition, enabled, power)
+        async with self._control_lock:
+            return await self._async_set_output(command, definition, enabled)
+
+    async def _async_set_output(
+        self,
+        command: str,
+        definition: OutputControl,
+        expected: bool,
+    ) -> DiagnosticStatus:
+        """Send a fixed output command and verify its diagnostic state."""
+        packet = build_control_packet(PACKET_TYPE_COMMAND, sanitize_command(command))
+        writer: asyncio.StreamWriter | None = None
+
+        try:
+            _, writer = await asyncio.wait_for(
+                asyncio.open_connection(self.host, self.control_port),
+                timeout=self.connect_timeout,
+            )
+            writer.write(packet)
+            await writer.drain()
+        except MakeraZ1Error:
+            raise
+        except (OSError, TimeoutError) as err:
+            raise MakeraZ1ConnectionError(
+                f"Could not connect to {self.host}:{self.control_port}."
+            ) from err
+        finally:
+            if writer is not None:
+                writer.close()
+                with suppress(Exception):
+                    await writer.wait_closed()
+
+        for delay in (0.15, 0.35, 0.75):
+            await asyncio.sleep(delay)
+            diagnostic = await self._async_fetch_diagnostic()
+            fields = map_diagnostic_fields(diagnostic)
+            actual = diagnostic_switch_is_active(fields.get(definition.state_field))
+            if actual is expected:
+                return diagnostic
+
+        raise MakeraZ1ResponseError(
+            f"The controller did not confirm the requested {definition.label} state."
+        )
+
+    async def _async_fetch_diagnostic(self) -> DiagnosticStatus:
+        """Read one diagnostic packet on a short-lived control connection."""
+        packet = build_control_packet(PACKET_TYPE_COMMAND, sanitize_command("diagnose"))
+        packet_parser = ControlPacketParser()
+        stream_parser = MachineStreamParser()
+        writer: asyncio.StreamWriter | None = None
+
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(self.host, self.control_port),
+                timeout=self.connect_timeout,
+            )
+            writer.write(packet)
+            await writer.drain()
+
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + self.response_timeout
+            while loop.time() < deadline:
+                timeout = max(0.05, deadline - loop.time())
+                try:
+                    chunk = await asyncio.wait_for(reader.read(4096), timeout=timeout)
+                except TimeoutError:
+                    break
+                if not chunk:
+                    break
+
+                for packet_message in packet_parser.push(chunk):
+                    if packet_message.kind == "error":
+                        raise MakeraZ1ResponseError(
+                            packet_message.reason or "Invalid control packet."
+                        )
+                    if packet_message.kind != "packet":
+                        continue
+
+                    messages = [
+                        *stream_parser.push(packet_message.payload),
+                        *stream_parser.finish_message(),
+                    ]
+                    for message in messages:
+                        if message.kind == "diagnostic":
+                            return message.value
+                        if message.kind == "line" and str(
+                            message.value
+                        ).lower().startswith(("error", "alarm")):
+                            raise MakeraZ1ResponseError(str(message.value))
+
+            raise MakeraZ1ResponseError(
+                "The controller did not return output diagnostic feedback."
+            )
+        except MakeraZ1Error:
+            raise
+        except (OSError, TimeoutError) as err:
+            raise MakeraZ1ConnectionError(
+                f"Could not connect to {self.host}:{self.control_port}."
+            ) from err
+        finally:
+            if writer is not None:
+                writer.close()
+                with suppress(Exception):
+                    await writer.wait_closed()
+
+    async def async_set_camera_resolution(self, value: int) -> None:
+        """Set and verify one firmware camera framesize value."""
+        resolution = next(
+            (item for item in CAMERA_RESOLUTIONS if item.value == value), None
+        )
+        if resolution is None:
+            raise ValueError("Unsupported camera resolution value.")
+        if self.session is None:
+            raise MakeraZ1ConnectionError("No HTTP client session is available.")
+
+        async with self._camera_setting_lock:
+            for _attempt in range(2):
+                frames = self.async_camera_frames()
+                try:
+                    first_frame = await asyncio.wait_for(
+                        anext(frames), timeout=self.camera_timeout
+                    )
+                    if jpeg_dimensions(first_frame) == (
+                        resolution.width,
+                        resolution.height,
+                    ):
+                        self._camera_resolution = resolution
+                        return
+
+                    await self._async_post_camera_resolution(resolution)
+                    if await self._async_wait_for_camera_resolution(frames, resolution):
+                        self._camera_resolution = resolution
+                        return
+                except (StopAsyncIteration, TimeoutError):
+                    pass
+                finally:
+                    await frames.aclose()
+
+        raise MakeraZ1ResponseError(
+            "The camera did not produce the requested frame size after two attempts."
+        )
+
+    async def _async_post_camera_resolution(self, resolution: CameraResolution) -> None:
+        """Send one idempotent camera framesize request."""
+        from aiohttp import ClientError
+
+        response = None
+        url = f"http://{self.host}/api/camera/resolution"
+        try:
+            response = await asyncio.wait_for(
+                self.session.post(url, json={"resolution": resolution.value}),
+                timeout=self.camera_timeout,
+            )
+            message = (
+                await asyncio.wait_for(response.text(), timeout=self.camera_timeout)
+            ).strip()
+            if not 200 <= response.status < 300 or "failed" in message.lower():
+                raise MakeraZ1ResponseError(
+                    message
+                    or f"Camera firmware rejected the setting ({response.status})."
+                )
+        except MakeraZ1Error:
+            raise
+        except (ClientError, OSError, TimeoutError) as err:
+            raise MakeraZ1ConnectionError(
+                f"Could not set camera resolution through {url}."
+            ) from err
+        finally:
+            if response is not None:
+                response.release()
+
+    async def _async_wait_for_camera_resolution(
+        self,
+        frames: AsyncGenerator[bytes, None],
+        resolution: CameraResolution,
+    ) -> bool:
+        """Wait briefly for a frame that confirms a requested size."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self.camera_timeout
+        for _frame_number in range(12):
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                return False
+            try:
+                frame = await asyncio.wait_for(anext(frames), timeout=remaining)
+            except (StopAsyncIteration, TimeoutError):
+                return False
+            if jpeg_dimensions(frame) == (resolution.width, resolution.height):
+                return True
+        return False
+
+    def observe_camera_frame(self, frame: bytes) -> None:
+        """Cache the framesize represented by a received JPEG."""
+        dimensions = jpeg_dimensions(frame)
+        if dimensions is None:
+            return
+        self._camera_resolution = next(
+            (
+                resolution
+                for resolution in CAMERA_RESOLUTIONS
+                if (resolution.width, resolution.height) == dimensions
+            ),
+            None,
         )
 
     async def async_get_camera_image(self) -> bytes:
@@ -496,6 +840,7 @@ class _CameraStreamBroker:
                     frame = bytes(message.data)
                     if not is_jpeg(frame):
                         raise MakeraZ1ResponseError("Camera returned a non-JPEG frame.")
+                    self._client.observe_camera_frame(frame)
                     await self._async_publish_frame(frame)
                     continue
 
@@ -812,6 +1157,44 @@ def sanitize_command(command: str) -> bytes:
     return data
 
 
+def build_output_command(
+    definition: OutputControl,
+    enabled: bool,
+    power: int | float | None = None,
+) -> tuple[str, int | None]:
+    """Build one command from the fixed output allowlist."""
+    if enabled is False:
+        return definition.command_off, None
+    if enabled is not True:
+        raise ValueError("Output state must be enabled or disabled.")
+
+    if definition.power_field is None:
+        if power is not None:
+            raise ValueError(f"The {definition.label} does not support power control.")
+        return definition.command_on, None
+
+    minimum = definition.minimum_power
+    maximum = definition.maximum_power
+    step = definition.power_step
+    amount = definition.default_power if power is None else power
+    if minimum is None or maximum is None or step is None or amount is None:
+        raise ValueError(f"The {definition.label} power definition is incomplete.")
+    if isinstance(amount, bool):
+        raise ValueError(f"The {definition.label} power must be a number.")
+
+    numeric = float(amount)
+    if not math.isfinite(numeric) or numeric < minimum or numeric > maximum:
+        raise ValueError(
+            f"The {definition.label} power must be between {minimum} and {maximum}."
+        )
+    steps = (numeric - minimum) / step
+    if not math.isclose(steps, round(steps), abs_tol=1e-9):
+        raise ValueError(f"The {definition.label} power must use increments of {step}.")
+
+    normalized = minimum + round(steps) * step
+    return definition.command_on.replace("{power}", str(normalized)), normalized
+
+
 def build_control_packet(packet_type: int, payload: bytes = b"") -> bytes:
     """Build a Makera control packet."""
     if packet_type < 0 or packet_type > 0xFF:
@@ -1024,6 +1407,57 @@ def parse_integer(value: str) -> int | None:
 def is_jpeg(data: bytes) -> bool:
     """Return whether bytes look like a JPEG."""
     return len(data) >= 4 and data[0] == 0xFF and data[1] == 0xD8
+
+
+def jpeg_dimensions(data: bytes) -> tuple[int, int] | None:
+    """Return JPEG dimensions without decoding the image."""
+    if not is_jpeg(data):
+        return None
+
+    start_of_frame = {
+        0xC0,
+        0xC1,
+        0xC2,
+        0xC3,
+        0xC5,
+        0xC6,
+        0xC7,
+        0xC9,
+        0xCA,
+        0xCB,
+        0xCD,
+        0xCE,
+        0xCF,
+    }
+    offset = 2
+    while offset + 4 <= len(data):
+        if data[offset] != 0xFF:
+            offset += 1
+            continue
+        while offset < len(data) and data[offset] == 0xFF:
+            offset += 1
+        if offset >= len(data):
+            return None
+
+        marker = data[offset]
+        offset += 1
+        if marker in {0x01, 0xD8, 0xD9} or 0xD0 <= marker <= 0xD7:
+            continue
+        if marker == 0xDA or offset + 2 > len(data):
+            return None
+
+        segment_length = int.from_bytes(data[offset : offset + 2], "big")
+        if segment_length < 2 or offset + segment_length > len(data):
+            return None
+        if marker in start_of_frame:
+            if segment_length < 7:
+                return None
+            height = int.from_bytes(data[offset + 3 : offset + 5], "big")
+            width = int.from_bytes(data[offset + 5 : offset + 7], "big")
+            return (width, height) if width and height else None
+        offset += segment_length
+
+    return None
 
 
 def _update_identity(

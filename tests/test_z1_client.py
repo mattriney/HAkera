@@ -1,4 +1,4 @@
-"""Tests for the read-only Makera Z1 client behavior."""
+"""Tests for Makera Z1 client behavior."""
 
 from __future__ import annotations
 
@@ -11,12 +11,13 @@ from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 COMPONENT = ROOT / "custom_components" / "makera_z1"
-sys.path.insert(0, str(COMPONENT))
+sys.path.append(str(COMPONENT))
 
 from z1 import (  # noqa: E402
     ControlPacketParser,
     MakeraZ1CameraBusyError,
     MakeraZ1Client,
+    MakeraZ1ResponseError,
     build_control_packet,
 )
 
@@ -66,6 +67,9 @@ class _FakeSession:
         self.connections: list[_FakeWebSocket] = []
         self.connected = asyncio.Event()
         self.urls: list[str] = []
+        self.posts: list[tuple[str, dict[str, int]]] = []
+        self.post_frame: bytes | None = None
+        self.responses: list[_FakeResponse] = []
 
     async def ws_connect(self, url: str) -> _FakeWebSocket:
         """Open a fake WebSocket."""
@@ -74,6 +78,34 @@ class _FakeSession:
         self.connections.append(websocket)
         self.connected.set()
         return websocket
+
+    async def post(self, url: str, *, json: dict[str, int]) -> _FakeResponse:
+        """Record a camera setting request and optionally publish its result."""
+        self.posts.append((url, json))
+        response = _FakeResponse()
+        self.responses.append(response)
+        if self.post_frame is not None:
+            await self.connections[-1].messages.put(
+                SimpleNamespace(type=_FakeWSMsgType.BINARY, data=self.post_frame)
+            )
+        return response
+
+
+class _FakeResponse:
+    """Minimal aiohttp response used by camera setting tests."""
+
+    def __init__(self, *, status: int = 200, body: str = "success") -> None:
+        self.status = status
+        self.body = body
+        self.released = False
+
+    async def text(self) -> str:
+        """Return the fake response body."""
+        return self.body
+
+    def release(self) -> None:
+        """Record response release."""
+        self.released = True
 
 
 def _fake_aiohttp_module() -> ModuleType:
@@ -156,6 +188,67 @@ class MakeraZ1ClientTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(snapshot.identity.firmware_version, "1.1.2.0.1.13")
         self.assertEqual(snapshot.spindle_report.current_rpm, 0.0)
         self.assertEqual(snapshot.diagnostic_fields["rssi"].value, -63.0)
+
+    async def test_set_output_uses_allowlist_and_confirms_feedback(self) -> None:
+        received_commands: list[str] = []
+
+        async def handle_client(
+            reader: asyncio.StreamReader,
+            writer: asyncio.StreamWriter,
+        ) -> None:
+            data = await reader.read(4096)
+            parser = ControlPacketParser()
+            received_commands.extend(
+                message.payload.decode("ascii")
+                for message in parser.push(data)
+                if message.packet_type == 0xA2
+            )
+            writer.write(
+                build_control_packet(
+                    0x83,
+                    b"{S:0,10000,0,0,26,23|V:1,35|F:0,0|"
+                    b"G:1,0,0,0,0|P:0,0|I:0|E:0,0,0,0,0,0,1,0}",
+                )
+            )
+            await writer.drain()
+            writer.close()
+
+        server = await asyncio.start_server(handle_client, "127.0.0.1", 0)
+        try:
+            port = server.sockets[0].getsockname()[1]
+            client = MakeraZ1Client("127.0.0.1", control_port=port)
+            await client.async_set_output("power_fan", True, 35)
+        finally:
+            server.close()
+            await server.wait_closed()
+
+        self.assertEqual(received_commands, ["M801S35", "diagnose"])
+
+    async def test_set_output_rejects_unconfirmed_state(self) -> None:
+        async def handle_client(
+            reader: asyncio.StreamReader,
+            writer: asyncio.StreamWriter,
+        ) -> None:
+            await reader.read(4096)
+            writer.write(
+                build_control_packet(
+                    0x83,
+                    b"{S:0,10000,0,0,26,23|V:0,0|F:0,0|"
+                    b"G:1,0,0,0,0|P:0,0|I:0|E:0,0,0,0,0,0,1,0}",
+                )
+            )
+            await writer.drain()
+            writer.close()
+
+        server = await asyncio.start_server(handle_client, "127.0.0.1", 0)
+        try:
+            port = server.sockets[0].getsockname()[1]
+            client = MakeraZ1Client("127.0.0.1", control_port=port)
+            with self.assertRaisesRegex(MakeraZ1ResponseError, "control-box fan"):
+                await client.async_set_output("power_fan", True, 35)
+        finally:
+            server.close()
+            await server.wait_closed()
 
     async def test_camera_image_opens_and_releases_on_demand_stream(self) -> None:
         session = _FakeSession()
@@ -240,6 +333,44 @@ class MakeraZ1ClientTest(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(websocket.closed_event.wait(), timeout=1)
 
         self.assertEqual(websocket.sent, ["start_stream", "stop_stream"])
+
+    async def test_camera_resolution_is_verified_from_stream_dimensions(self) -> None:
+        session = _FakeSession()
+        session.post_frame = _jpeg_with_dimensions(640, 480)
+        client = MakeraZ1Client("127.0.0.1", session=session)
+        self.addAsyncCleanup(client.async_close)
+
+        with patch.dict(sys.modules, {"aiohttp": _fake_aiohttp_module()}):
+            setting_task = asyncio.create_task(client.async_set_camera_resolution(10))
+            await asyncio.wait_for(session.connected.wait(), timeout=1)
+            websocket = session.connections[0]
+            await websocket.messages.put(
+                SimpleNamespace(
+                    type=_FakeWSMsgType.BINARY,
+                    data=_jpeg_with_dimensions(320, 240),
+                )
+            )
+            await asyncio.wait_for(setting_task, timeout=1)
+            await asyncio.wait_for(websocket.closed_event.wait(), timeout=1)
+
+        self.assertEqual(
+            session.posts,
+            [("http://127.0.0.1/api/camera/resolution", {"resolution": 10})],
+        )
+        self.assertTrue(session.responses[0].released)
+        self.assertEqual(client.camera_resolution_option, "640x480")
+
+
+def _jpeg_with_dimensions(width: int, height: int) -> bytes:
+    """Build a minimal JPEG header with a baseline SOF segment."""
+    return b"".join(
+        (
+            b"\xff\xd8\xff\xc0\x00\x11\x08",
+            height.to_bytes(2, "big"),
+            width.to_bytes(2, "big"),
+            b"\x03\x01\x11\x00\x02\x11\x00\x03\x11\x00\xff\xd9",
+        )
+    )
 
 
 if __name__ == "__main__":

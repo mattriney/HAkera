@@ -2,10 +2,11 @@
 
 ## Scope
 
-The current integration is read-only. Do not add motion, spindle, tool-change,
-probing, file upload, arbitrary G-code, or job-control actions to this component.
+The integration permits only fixed work-light, fan, external-output, and camera
+resolution commands. Do not add motion, spindle-motor, tool-change, probing, file
+upload, arbitrary G-code, or job-control actions to this component.
 
-Write-capable machine control needs a separate safety design before it belongs
+Any broader machine control needs a separate safety design before it belongs
 near Home Assistant.
 
 ## Local checks
