@@ -179,11 +179,11 @@ SENSOR_DESCRIPTIONS: tuple[MakeraZ1SensorEntityDescription, ...] = (
     ),
     MakeraZ1SensorEntityDescription(
         key="homing_code",
-        translation_key="homing_code",
+        translation_key="halt_reason_code",
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
-        icon="mdi:home-search",
-        value_fn=lambda snapshot: snapshot.status.homing,
+        icon="mdi:alert-box-outline",
+        value_fn=lambda snapshot: snapshot.status.halt_reason_code,
     ),
     MakeraZ1SensorEntityDescription(
         key="machine_x",

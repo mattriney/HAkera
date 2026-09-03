@@ -64,15 +64,47 @@ class ControllerAlert:
     kind: str
     axis: str | None = None
     direction: str | None = None
+    code: int | None = None
 
-    def as_diagnostics(self) -> dict[str, str | None]:
+    def as_diagnostics(self) -> dict[str, str | int | None]:
         """Return diagnostics-safe alert data."""
         return {
             "message": self.message,
             "kind": self.kind,
             "axis": self.axis,
             "direction": self.direction,
+            "code": self.code,
         }
+
+
+HALT_REASON_DETAILS: Final[dict[int, tuple[str, str, str | None]]] = {
+    1: ("Halt Manually", "manual_halt", None),
+    2: ("Home Fail", "home_failure", None),
+    3: ("Probe Fail", "probe_failure", None),
+    4: ("Calibrate Fail", "calibration_failure", None),
+    5: ("ATC Home Fail", "tool_changer_failure", None),
+    6: ("ATC Invalid Tool Number", "tool_changer_failure", None),
+    7: ("ATC Drop Tool Fail", "tool_changer_failure", None),
+    8: ("ATC Position Occupied", "tool_changer_failure", None),
+    9: ("Spindle Overheated", "spindle_overheat", None),
+    10: ("Soft Limit Triggered", "soft_limit", None),
+    11: ("Cover opened when playing", "cover_open", None),
+    12: ("Probe dead or not set", "probe_failure", None),
+    13: ("Emergency stop button pressed", "emergency_stop", None),
+    14: ("Power Overheated", "control_box_overheat", None),
+    15: (
+        "Machine has not been homed,Please home first!",
+        "not_homed",
+        None,
+    ),
+    21: ("Hard Limit Triggered, reset needed", "hard_limit", None),
+    22: ("X Axis Motor Error, reset needed", "motor_alarm", "X"),
+    23: ("Y Axis Motor Error, reset needed", "motor_alarm", "Y"),
+    24: ("Z Axis Motor Error, reset needed", "motor_alarm", "Z"),
+    25: ("Spindle Stall, reset needed", "spindle_stall", None),
+    26: ("SD card read fail, reset needed", "storage_error", None),
+    41: ("Spindle Alarm, power off/on needed", "spindle_alarm", None),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,7 +120,7 @@ class MachineStatus:
     tool: tuple[float | None, ...] | None = None
     accessory: int | None = None
     override: float | None = None
-    homing: int | None = None
+    halt_reason_code: int | None = None
     counters: tuple[int | None, ...] | None = None
     fields: dict[str, str | bool] | None = None
 
@@ -104,7 +136,7 @@ class MachineStatus:
             "tool": self.tool,
             "accessory": self.accessory,
             "override": self.override,
-            "homing": self.homing,
+            "halt_reason_code": self.halt_reason_code,
             "counters": self.counters,
             "fields": self.fields,
         }
@@ -530,8 +562,31 @@ class MakeraZ1Client:
         self._identity = identity
         self._spindle_report = spindle_report
         controller_is_alarmed = status.state.lower().startswith(("alarm", "halt"))
+        status_alert = (
+            controller_alert_from_halt_code(status.halt_reason_code)
+            if controller_is_alarmed
+            else None
+        )
         if not controller_is_alarmed:
             self._active_alert = None
+        elif status_alert is not None:
+            selected_alert = status_alert
+            if (
+                self._active_alert is not None
+                and self._active_alert.kind == status_alert.kind
+                and (
+                    self._active_alert.code is None
+                    or self._active_alert.code == status_alert.code
+                )
+            ):
+                selected_alert = _merge_controller_alerts(
+                    self._active_alert, selected_alert
+                )
+            if observed_alert is not None and observed_alert.kind == status_alert.kind:
+                selected_alert = _merge_controller_alerts(
+                    observed_alert, selected_alert
+                )
+            self._active_alert = selected_alert
         elif observed_alert is not None:
             if self._active_alert is None or _alert_priority(
                 observed_alert
@@ -1303,7 +1358,7 @@ def parse_status_packet(packet: str) -> MachineStatus:
         elif key == "O":
             status = replace(status, override=parse_finite(value))
         elif key == "H":
-            status = replace(status, homing=parse_integer(value))
+            status = replace(status, halt_reason_code=parse_integer(value))
         elif key == "C":
             status = replace(status, counters=parse_integer_list(value))
 
@@ -1394,7 +1449,6 @@ def parse_controller_alert_line(line: str) -> ControllerAlert | None:
             message=message,
             kind="soft_limit",
             axis=match.group(1).upper(),
-            direction="negative",
         )
 
     match = HARD_LIMIT_RE.search(message)
@@ -1427,6 +1481,23 @@ def parse_controller_alert_line(line: str) -> ControllerAlert | None:
     return None
 
 
+def controller_alert_from_halt_code(code: int | None) -> ControllerAlert | None:
+    """Decode the persistent controller halt-reason code used by Makera Studio."""
+    if code is None or code <= 0:
+        return None
+
+    details = HALT_REASON_DETAILS.get(code)
+    if details is None:
+        return ControllerAlert(
+            message=f"Controller halt code {code}",
+            kind="controller_alarm",
+            code=code,
+        )
+
+    message, kind, axis = details
+    return ControllerAlert(message=message, kind=kind, axis=axis, code=code)
+
+
 def snapshot_is_alarmed(snapshot: MakeraZ1Snapshot | None) -> bool | None:
     """Return whether a snapshot reports an active alarm or halt condition."""
     if snapshot is None:
@@ -1443,6 +1514,19 @@ def _alert_priority(alert: ControllerAlert) -> int:
     if alert.kind == "controller_alarm":
         return 1
     return 2
+
+
+def _merge_controller_alerts(
+    primary: ControllerAlert, fallback: ControllerAlert
+) -> ControllerAlert:
+    """Preserve details from an event message while attaching its status code."""
+    return ControllerAlert(
+        message=primary.message,
+        kind=primary.kind,
+        axis=primary.axis or fallback.axis,
+        direction=primary.direction or fallback.direction,
+        code=primary.code if primary.code is not None else fallback.code,
+    )
 
 
 def parse_spindle_report_line(line: str) -> dict[str, str | float] | None:

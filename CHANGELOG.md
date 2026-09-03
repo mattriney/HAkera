@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.2
+
+- Decodes the controller's persistent `H` halt-reason codes, including
+  `H:10` for a soft-limit alarm, without inferring alarms from coordinates.
+- Preserves axis details only when the controller explicitly reports them.
+- Correctly labels the disabled diagnostic sensor as `Halt reason code`.
+- Removes the redundant work-light feedback binary sensor and cleans its old
+  entity-registry entry during setup; the feedback-backed light remains.
+
 ## 0.3.1
 
 - Adds a dedicated soft-limit alarm binary sensor.

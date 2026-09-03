@@ -69,6 +69,16 @@ class RepositoryContractTest(unittest.TestCase):
         self.assertIn("work_light", entities["light"])
         self.assertIn("camera_resolution", entities["select"])
 
+    def test_work_light_is_only_exposed_as_a_light(self) -> None:
+        strings = json.loads((COMPONENT / "strings.json").read_text(encoding="utf-8"))
+        binary_source = (COMPONENT / "binary_sensor.py").read_text(encoding="utf-8")
+        setup_source = (COMPONENT / "__init__.py").read_text(encoding="utf-8")
+
+        self.assertNotIn("work_light_feedback", strings["entity"]["binary_sensor"])
+        self.assertNotIn('translation_key="work_light_feedback"', binary_source)
+        self.assertIn('("binary_sensor", "work_light")', setup_source)
+        self.assertIn("entity_registry.async_remove(entity_id)", setup_source)
+
     def test_pyproject_is_valid_toml(self) -> None:
         data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
         self.assertEqual(data["project"]["name"], "home-assistant-makera-z1")

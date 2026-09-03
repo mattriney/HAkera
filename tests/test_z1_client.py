@@ -190,12 +190,10 @@ class MakeraZ1ClientTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(snapshot.diagnostic_fields["rssi"].value, -63.0)
         self.assertIsNone(snapshot.alert)
 
-    async def test_soft_limit_alert_survives_alarm_lock_until_unlock(self) -> None:
+    async def test_halt_code_identifies_soft_limit_and_preserves_details(self) -> None:
         responses = [
-            (
-                "Alarm",
-                "Soft Endstop X was exceeded - reset or $X or M999 required",
-            ),
+            ("Alarm", "error:Alarm lock"),
+            ("Alarm", "Soft Endstop X was exceeded - reset or $X or M999 required"),
             ("Alarm", "error:Alarm lock"),
             ("Idle", "[Caution: Unlocked]"),
         ]
@@ -213,7 +211,8 @@ class MakeraZ1ClientTest(unittest.IsolatedAsyncioTestCase):
                             0x81,
                             (
                                 f"<{state}|MPos:-201,-1,-1,0|WPos:0,0,0,0|"
-                                "F:0,0|S:0,10000,100|T:1|O:100|H:0|C:1,0>"
+                                f"F:0,0|S:0,10000,100|T:1|O:100|"
+                                f"H:{10 if state == 'Alarm' else 0}|C:1,0>"
                             ).encode(),
                         ),
                         build_control_packet(
@@ -240,15 +239,21 @@ class MakeraZ1ClientTest(unittest.IsolatedAsyncioTestCase):
             first = await client.async_fetch_snapshot(include_identity=False)
             second = await client.async_fetch_snapshot(include_identity=False)
             third = await client.async_fetch_snapshot(include_identity=False)
+            fourth = await client.async_fetch_snapshot(include_identity=False)
         finally:
             server.close()
             await server.wait_closed()
 
         self.assertEqual(first.alert.kind, "soft_limit")
-        self.assertEqual(first.alert.axis, "X")
+        self.assertEqual(first.alert.message, "Soft Limit Triggered")
+        self.assertEqual(first.alert.code, 10)
+        self.assertIsNone(first.alert.axis)
         self.assertEqual(second.alert.kind, "soft_limit")
         self.assertEqual(second.alert.axis, "X")
-        self.assertIsNone(third.alert)
+        self.assertEqual(second.alert.code, 10)
+        self.assertEqual(third.alert.axis, "X")
+        self.assertEqual(third.alert.code, 10)
+        self.assertIsNone(fourth.alert)
 
     async def test_set_output_uses_allowlist_and_confirms_feedback(self) -> None:
         received_commands: list[str] = []

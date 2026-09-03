@@ -80,14 +80,6 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[MakeraZ1BinarySensorEntityDescription, ...] = 
         value_fn=_diagnostic_active("cover", active_low=True),
     ),
     MakeraZ1BinarySensorEntityDescription(
-        key="work_light",
-        translation_key="work_light_feedback",
-        device_class=BinarySensorDeviceClass.LIGHT,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        entity_registry_enabled_default=False,
-        value_fn=_diagnostic_active("workLight"),
-    ),
-    MakeraZ1BinarySensorEntityDescription(
         key="emergency_stop",
         translation_key="emergency_stop",
         device_class=BinarySensorDeviceClass.PROBLEM,
@@ -199,6 +191,8 @@ class MakeraZ1BinarySensor(MakeraZ1Entity, BinarySensorEntity):
             attributes["axis"] = alert.axis
         if alert.direction:
             attributes["direction"] = alert.direction
+        if alert.code is not None:
+            attributes["code"] = alert.code
         return attributes
 
 

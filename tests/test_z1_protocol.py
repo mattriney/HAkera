@@ -19,6 +19,7 @@ from z1 import (  # noqa: E402
     MachineStreamParser,
     build_control_packet,
     build_output_command,
+    controller_alert_from_halt_code,
     crc16_xmodem,
     diagnostic_switch_is_active,
     jpeg_dimensions,
@@ -73,6 +74,7 @@ class MakeraZ1ProtocolTest(unittest.TestCase):
         self.assertEqual(status.work_position, (0.1, 0.2, 0.3, 0.4))
         self.assertEqual(status.feed, (500.0, 0.0))
         self.assertEqual(status.spindle, (12000.0, 10000.0, 100.0))
+        self.assertEqual(status.halt_reason_code, 0)
         self.assertEqual(status.fields["X"], "test")
 
     def test_machine_stream_parser(self) -> None:
@@ -147,7 +149,7 @@ class MakeraZ1ProtocolTest(unittest.TestCase):
         self.assertIsNotNone(soft_limit)
         self.assertEqual(soft_limit.kind, "soft_limit")
         self.assertEqual(soft_limit.axis, "X")
-        self.assertEqual(soft_limit.direction, "negative")
+        self.assertIsNone(soft_limit.direction)
 
         hard_limit = parse_controller_alert_line("ALARM: Hard limit Z+")
         self.assertIsNotNone(hard_limit)
@@ -160,6 +162,53 @@ class MakeraZ1ProtocolTest(unittest.TestCase):
         self.assertEqual(alarm_lock.kind, "alarm_lock")
         self.assertIsNone(alarm_lock.axis)
         self.assertIsNone(parse_controller_alert_line("error:Unsupported command"))
+
+    def test_controller_halt_reason_codes(self) -> None:
+        expected = {
+            1: ("Halt Manually", "manual_halt", None),
+            2: ("Home Fail", "home_failure", None),
+            3: ("Probe Fail", "probe_failure", None),
+            4: ("Calibrate Fail", "calibration_failure", None),
+            5: ("ATC Home Fail", "tool_changer_failure", None),
+            6: ("ATC Invalid Tool Number", "tool_changer_failure", None),
+            7: ("ATC Drop Tool Fail", "tool_changer_failure", None),
+            8: ("ATC Position Occupied", "tool_changer_failure", None),
+            9: ("Spindle Overheated", "spindle_overheat", None),
+            10: ("Soft Limit Triggered", "soft_limit", None),
+            11: ("Cover opened when playing", "cover_open", None),
+            12: ("Probe dead or not set", "probe_failure", None),
+            13: ("Emergency stop button pressed", "emergency_stop", None),
+            14: ("Power Overheated", "control_box_overheat", None),
+            15: (
+                "Machine has not been homed,Please home first!",
+                "not_homed",
+                None,
+            ),
+            21: ("Hard Limit Triggered, reset needed", "hard_limit", None),
+            22: ("X Axis Motor Error, reset needed", "motor_alarm", "X"),
+            23: ("Y Axis Motor Error, reset needed", "motor_alarm", "Y"),
+            24: ("Z Axis Motor Error, reset needed", "motor_alarm", "Z"),
+            25: ("Spindle Stall, reset needed", "spindle_stall", None),
+            26: ("SD card read fail, reset needed", "storage_error", None),
+            41: ("Spindle Alarm, power off/on needed", "spindle_alarm", None),
+        }
+
+        for code, (message, kind, axis) in expected.items():
+            with self.subTest(code=code):
+                alert = controller_alert_from_halt_code(code)
+                self.assertIsNotNone(alert)
+                self.assertEqual(alert.message, message)
+                self.assertEqual(alert.kind, kind)
+                self.assertEqual(alert.axis, axis)
+                self.assertEqual(alert.code, code)
+
+        self.assertIsNone(controller_alert_from_halt_code(None))
+        self.assertIsNone(controller_alert_from_halt_code(0))
+        unknown = controller_alert_from_halt_code(99)
+        self.assertIsNotNone(unknown)
+        self.assertEqual(unknown.message, "Controller halt code 99")
+        self.assertEqual(unknown.kind, "controller_alarm")
+        self.assertEqual(unknown.code, 99)
 
     def test_spindle_report_lines(self) -> None:
         self.assertEqual(
