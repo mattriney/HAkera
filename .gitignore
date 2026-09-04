@@ -9,6 +9,7 @@ __pycache__/
 .venv-ha/
 venv/
 .python314/
+.local-tools/
 dist/
 build/
 
