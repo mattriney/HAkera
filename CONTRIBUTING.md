@@ -35,11 +35,10 @@ the protocol delta obvious in review.
 
 ## Publishing checklist
 
-Before publishing to GitHub:
+Before publishing a release:
 
-- Replace placeholder GitHub URLs in `manifest.json`.
-- Add real `codeowners` in `manifest.json` if desired.
-- Choose and add a license.
+- Verify the repository URLs and `codeowners` in `manifest.json`.
+- Verify the repository license and documentation.
 - Create the first GitHub release so HACS users can pin/install a version.
 - Confirm the HACS and hassfest workflows pass.
 

@@ -1,12 +1,12 @@
 {
   "domain": "hakera",
   "name": "Hakera",
-  "codeowners": [],
+  "codeowners": ["@mattriney"],
   "config_flow": true,
-  "documentation": "https://github.com/your-account/home-assistant-hakera",
+  "documentation": "https://github.com/mattriney/home-assistant-hakera",
   "integration_type": "device",
   "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/your-account/home-assistant-hakera/issues",
+  "issue_tracker": "https://github.com/mattriney/home-assistant-hakera/issues",
   "loggers": ["custom_components.hakera"],
   "requirements": [],
   "version": "0.4.3"

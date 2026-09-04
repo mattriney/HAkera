@@ -1,8 +1,9 @@
 # Hakera
 
-Hakera is a Home Assistant custom integration for monitoring a Makera Z1 / Z1
-Pro and controlling a small set of non-motion accessories over the local
-network.
+Hakera is a Home Assistant custom integration for monitoring Makera Z1 CNC
+machines and controlling a small set of non-motion accessories over the local
+network. It targets the Z1 product family and was initially developed and tested
+on the Z1 Pro submodel.
 
 This repository does not expose motion, the spindle motor, tool change, probing,
 file upload, arbitrary G-code, or job-control actions.
@@ -236,5 +237,4 @@ machine.
 
 ## License
 
-No public license has been selected yet. Choose a license before publishing this
-as an open-source repository.
+Hakera is released under the [MIT License](LICENSE).
