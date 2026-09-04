@@ -7,6 +7,8 @@
   the controller serial before writing them.
 - Expands failure-path coverage to 98% and raises the enforced CI floor to 95%.
 - Adds guarded, automated GitHub releases and monthly dependency update checks.
+- Prevents HACS installation on Home Assistant versions older than the tested
+  `2026.8.3` runtime.
 
 ## 0.4.0
 

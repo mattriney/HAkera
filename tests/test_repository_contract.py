@@ -49,6 +49,7 @@ class RepositoryContractTest(unittest.TestCase):
     def test_hacs_metadata_is_valid(self) -> None:
         hacs = json.loads((ROOT / "hacs.json").read_text(encoding="utf-8"))
         self.assertEqual(hacs["name"], "Hakera")
+        self.assertEqual(hacs["homeassistant"], "2026.8.3")
         self.assertIn("sensor", hacs["domains"])
         self.assertIn("binary_sensor", hacs["domains"])
         self.assertIn("camera", hacs["domains"])
