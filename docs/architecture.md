@@ -24,6 +24,14 @@ protocol client.
 `z1.py` contains the runtime protocol code because HACS requires all files
 needed by the integration to live under `custom_components/hakera`.
 
+The confirmed network interfaces are:
+
+- control and status TCP: `<host>:2222`
+- camera WebSocket: `ws://<host>:82/ws_video`
+- camera start and stop commands: `start_stream` and `stop_stream`
+- camera frames: complete JPEG images
+- camera resolution: `POST http://<host>/api/camera/resolution`
+
 The normal TCP poll sends only read-only traffic:
 
 - realtime status query byte `0x3f`

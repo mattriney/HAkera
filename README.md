@@ -1,140 +1,84 @@
 # HAkera
 
+<p align="center">
+  <img src="custom_components/hakera/brand/icon@2x.png" alt="HAkera" width="180">
+</p>
+
 HAkera is a Home Assistant custom integration for monitoring Makera Z1 CNC
-machines and controlling a small set of non-motion accessories over the local
-network. It targets the Z1 product family and was initially developed and tested
-on the Z1 Pro submodel.
+machines and controlling non-motion accessories over the local network. It
+supports the Z1 product family and was developed and tested on a Z1 Pro.
 
-This repository does not expose motion, the spindle motor, tool change, probing,
-file upload, arbitrary G-code, or job-control actions.
+> [!IMPORTANT]
+> HAkera does not expose motion, spindle-motor, tool-change, probing, file,
+> G-code, or job controls. Home Assistant automations can run without an
+> operator present, so machine control remains deliberately out of scope.
 
-## Current status
+## Compatibility
 
-This custom component was built from local reverse engineering and live testing
-of one Z1 Pro running firmware `1.1.2.0.1.13`. Its setup, status telemetry, lid
-state, spindle telemetry, and on-demand camera have been tested on Home Assistant
-`2026.8.3`. Work-light, spindle-fan, and external-output control and feedback, as
-well as camera resolution selection, have also been tested on the real machine.
-Control-box-fan control and feedback have also been live verified.
+Live tested with:
 
-Confirmed device interfaces used here:
+- Makera Z1 Pro
+- Z1 firmware `1.1.2.0.1.13`
+- Home Assistant `2026.8.3`
 
-- Control/status TCP: `<z1-host>:2222`
-- Camera WebSocket: `ws://<z1-host>:82/ws_video`
-- Camera start command: `start_stream`
-- Camera stop command: `stop_stream`
-- Binary camera frames: complete JPEG images
-- Camera resolution: `POST http://<z1-host>/api/camera/resolution`
+Other Z1 models and firmware versions may work but have not yet been verified.
+
+## Features
+
+- Machine, alarm, lid, emergency-stop, spindle, temperature, and diagnostic
+  monitoring
+- On-demand camera stills and live MJPEG video
+- Camera resolution selection from `160x120` through `1600x1200`
+- Work-light control and feedback
+- Spindle-fan and control-box-fan control and feedback
+- External-output control and feedback for accessories such as a vacuum
+- Optional machine and work coordinates, disabled by default
 
 ## Installation
 
-### HACS custom repository
+### HACS
 
-1. Add this repository to HACS as a custom repository of type `Integration`.
-2. Install `HAkera`.
-3. Restart Home Assistant.
+1. Open HACS and search for `HAkera`.
+2. If it is not yet in the default catalog, add
+   `https://github.com/mattriney/HAkera` as a custom repository of type
+   `Integration`.
+3. Install HAkera and restart Home Assistant.
 4. Go to `Settings -> Devices & services -> Add integration`.
-5. Search for `HAkera`.
-6. Enter the Z1 host or IP address.
+5. Search for `HAkera` and enter the Z1 hostname or IP address.
 
-### Manual installation
+### Manual
 
-Copy `custom_components/hakera` into your Home Assistant configuration
-directory:
+Copy `custom_components/hakera` into your Home Assistant configuration directory
+and restart Home Assistant:
 
 ```text
 <ha-config>/custom_components/hakera
 ```
 
-Restart Home Assistant, then add the integration from the UI.
-
-### Changing the Z1 address
-
-If DHCP assigns the machine a different address, open the HAkera integration in
-`Settings -> Devices & services`, choose `Reconfigure`, and enter the new host.
-HAkera verifies the controller serial number before updating and reloading the
-entry.
-
-## Removal
-
-1. Go to `Settings -> Devices & services` and open `HAkera`.
-2. Open the integration entry menu and select `Delete`.
-3. To remove the files as well, uninstall `HAkera` in HACS or delete
-   `custom_components/hakera`, then restart Home Assistant.
+Then add HAkera from `Settings -> Devices & services`.
 
 ## Entities
 
-Sensors:
+| Platform | Entities |
+| --- | --- |
+| Sensors | Machine state, firmware, filesystem, tool, feed, spindle telemetry, temperatures, WiFi signal, alarm reason, and optional coordinates |
+| Binary sensors | Connection, alarm, soft limit, spindle running, lid, emergency stop, probe, tool setter, external input, and optional positive limits |
+| Camera | On-demand still images and live MJPEG video |
+| Light | Work light |
+| Fans | Spindle fan, control-box fan, and external output |
+| Select | Camera resolution |
 
-- Machine state
-- Firmware version
-- Filesystem type
-- Current tool
-- Feed rate
-- Feed override
-- Spindle current RPM
-- Spindle target RPM
-- Spindle scale
-- Spindle PWM value
-- Spindle temperature
-- Control-box temperature
-- WiFi signal
-- Alarm reason, decoded from the controller's persistent halt-reason code
-- Machine and work coordinates, disabled by default
-- Halt reason code, disabled by default
+Powered outputs accept percentages in 5% steps. Their entities continue to show
+the controller's reported value when firmware-controlled cooling overrides a
+manual command.
 
-Binary sensors:
+## Camera
 
-- Connected
-- Alarm
-- Soft-limit alarm, with an axis attribute when an axis-specific event is reported
-- Spindle running
-- Lid
-- Emergency stop
-- Probe
-- Tool setter
-- External input
-- Positive limit switches, disabled by default
+The camera connects only when Home Assistant requests an image or displays a
+live view. Multiple Home Assistant viewers share one connection because the Z1
+firmware appears to allow only one camera-stream owner.
 
-Camera:
-
-- On-demand still images using the Z1 WebSocket JPEG stream
-- On-demand live MJPEG video proxied through Home Assistant
-
-Light:
-
-- Work light, with controller-reported state
-
-Fans and powered outputs:
-
-- Spindle fan, with reported power
-- Control-box fan, with reported power
-- External output (vacuum), with reported power
-
-Each powered output accepts Home Assistant percentages in 5% steps. The entity
-continues to show the controller's exact reported value, which can differ from a
-manual command while firmware-controlled cooling is active.
-
-Select:
-
-- Camera resolution, covering all 15 firmware frame-size values from `160x120`
-  through `1600x1200`
-
-The integration opens the Z1 camera WebSocket only while Home Assistant is
-requesting a still or displaying a live view. It converts the proprietary
-WebSocket JPEG feed into Home Assistant's authenticated MJPEG camera proxy and
-sends `stop_stream` when the last viewer disconnects. Concurrent Home Assistant
-viewers share one upstream connection because the Z1 firmware appears to permit
-only one camera stream owner.
-
-Changing camera resolution temporarily subscribes to that same on-demand stream,
-sends the setting, and verifies the resulting JPEG dimensions. The request is
-retried once because firmware `1.1.2.0.1.13` can ignore the first request. Before
-the first camera view or selection after a restart, the resolution entity is
-`Unknown` because the firmware exposes no current-resolution query.
-
-To keep a dashboard card live while it is visible, select `Live` for its camera
-view or use this YAML pattern:
+Use a live picture-entity card to keep the feed active while the card is visible:
 
 ```yaml
 type: picture-entity
@@ -145,88 +89,43 @@ show_name: false
 show_state: false
 ```
 
-Replace `camera.your_z1_camera` with the camera entity ID created on your system.
+Replace `camera.your_z1_camera` with the entity ID created on your system.
 
-The camera intentionally does not advertise Home Assistant's `STREAM` feature.
-That feature means an ffmpeg/HLS or native WebRTC source and also enables
-recording services; the Z1 exposes neither. Its direct MJPEG proxy is live video,
-but it is not an HLS/WebRTC or recording source.
+The feed has no audio and is not an HLS, WebRTC, or recording source. Home
+Assistant's `camera.record` and `camera.play_stream` services are therefore not
+supported.
+
+## Troubleshooting
+
+### Camera unavailable
+
+Close the Makera Studio camera preview. Studio and Home Assistant can contend
+for the Z1's single camera connection.
+
+### Camera resolution is unknown
+
+The firmware provides no current-resolution query. HAkera learns the resolution
+after the first camera view or resolution change following a restart.
+
+### The Z1 address changed
+
+Open HAkera in `Settings -> Devices & services`, choose `Reconfigure`, and enter
+the new address. HAkera verifies the controller serial number before updating
+the entry.
 
 ## Known limitations
 
-- Write actions are limited to the work light, two cooling fans, external output,
-  and camera resolution. Motion, spindle-motor, and job controls are not exposed.
-- Studio and Home Assistant can contend for the same Z1 camera stream. If Studio
-  already owns the stream, Home Assistant may return no camera image until the
-  Studio preview is closed.
-- Live video is MJPEG without audio. It is intended for viewing in Home Assistant,
-  not for `camera.record` or `camera.play_stream`.
-- Discovery is not implemented yet. Setup is manual by host/IP.
-- The Home Assistant config flow requires the controller to return its serial
-  number with `sn-get`; this gives the config entry a stable unique ID.
+- Device discovery is not implemented; setup requires a hostname or IP address.
 - Position sensors are disabled by default to avoid noisy state history.
-- Alarm reasons are decoded from the persistent `H` halt-reason code even when
-  Home Assistant receives only `error:Alarm lock`. The code identifies a soft
-  limit but not its axis; an axis is shown only when the controller sends the
-  axis-specific event to Home Assistant's connection.
+- A soft-limit code does not identify its axis unless the controller sends the
+  axis-specific event to Home Assistant's active connection.
+- Current compatibility is based on one live-tested Z1 Pro and firmware version.
 
-## Development
+## Documentation
 
-Install the pinned test dependencies and run the complete Home Assistant and
-protocol suite:
-
-```powershell
-python -m pip install -r requirements_test.txt
-python -m pyright --pythonpath (python -c "import sys; print(sys.executable)")
-python -m pytest --cov=custom_components.hakera --cov-report=term-missing --cov-fail-under=95
-```
-
-The test dependency release is matched to Home Assistant `2026.8.3`, the same
-version used for live verification. Tests exercise the UI config flow, full
-config-entry setup and unload, entity registry migration, entity state and
-service behavior, diagnostics redaction, camera stills and MJPEG output, plus
-the lower-level controller protocol and firmware fixtures. Network access is
-blocked by default; the four protocol transport tests explicitly use only a
-fake controller bound to `127.0.0.1`.
-
-When new Z1 firmware is released, capture a new read-only fixture while the
-machine is idle:
-
-```powershell
-python tools/capture_firmware_fixture.py --host <z1-ip> --firmware <version>
-```
-
-Review the generated JSON under `tests/fixtures/`, then run the tests. This
-keeps protocol changes visible in source control before the Home Assistant
-integration is updated.
-
-The GitHub workflow runs:
-
-- HACS validation
-- Home Assistant hassfest validation
-- Ruff lint and format checks
-- Pyright type checking against the pinned Home Assistant runtime
-- Home Assistant runtime and protocol tests with a 95% coverage floor
-
-## Repository layout
-
-```text
-custom_components/hakera/        Home Assistant integration
-custom_components/hakera/brand/  Local Home Assistant brand icons
-tests/                        Home Assistant and protocol tests
-tests/fixtures/               Firmware protocol regression fixtures
-tools/                        Local read-only fixture capture helpers
-.github/workflows/            Repository validation
-hacs.json                     HACS metadata
-```
-
-## Safety posture
-
-The Z1 is a CNC machine. This integration limits writes to lights, cooling or
-vacuum-style outputs, and camera configuration. Machine motion, spindle-motor
-control, probing, and job control remain out of scope because Home Assistant
-automations and remote dashboards can trigger actions without an operator at the
-machine.
+- [Contributing](CONTRIBUTING.md)
+- [Architecture and protocol](docs/architecture.md)
+- [Firmware regression testing](docs/firmware-regression.md)
 
 ## License
 
