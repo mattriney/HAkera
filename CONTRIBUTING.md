@@ -41,3 +41,10 @@ Before publishing to GitHub:
 - Choose and add a license.
 - Create the first GitHub release so HACS users can pin/install a version.
 - Confirm the HACS and hassfest workflows pass.
+
+## Creating a release
+
+Keep the version in `manifest.json`, `pyproject.toml`, and `CHANGELOG.md` in
+sync. Push a matching `vX.Y.Z` tag only after `main` is green. The release
+workflow reruns all validation jobs, verifies those three version declarations,
+and creates the GitHub release only if every check passes.

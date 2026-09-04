@@ -6,6 +6,7 @@
 - Makes newly captured firmware fixtures replayable and automatically redacts
   the controller serial before writing them.
 - Expands failure-path coverage to 98% and raises the enforced CI floor to 95%.
+- Adds guarded, automated GitHub releases and monthly dependency update checks.
 
 ## 0.4.0
 
