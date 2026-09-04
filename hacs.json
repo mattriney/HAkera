@@ -1,7 +1,5 @@
 {
   "name": "Hakera",
   "render_readme": true,
-  "domains": ["binary_sensor", "camera", "fan", "light", "select", "sensor"],
-  "iot_class": "Local Polling",
   "homeassistant": "2026.8.3"
 }

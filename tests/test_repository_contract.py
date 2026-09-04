@@ -48,14 +48,14 @@ class RepositoryContractTest(unittest.TestCase):
 
     def test_hacs_metadata_is_valid(self) -> None:
         hacs = json.loads((ROOT / "hacs.json").read_text(encoding="utf-8"))
-        self.assertEqual(hacs["name"], "Hakera")
-        self.assertEqual(hacs["homeassistant"], "2026.8.3")
-        self.assertIn("sensor", hacs["domains"])
-        self.assertIn("binary_sensor", hacs["domains"])
-        self.assertIn("camera", hacs["domains"])
-        self.assertIn("fan", hacs["domains"])
-        self.assertIn("light", hacs["domains"])
-        self.assertIn("select", hacs["domains"])
+        self.assertEqual(
+            hacs,
+            {
+                "name": "Hakera",
+                "render_readme": True,
+                "homeassistant": "2026.8.3",
+            },
+        )
 
     def test_brand_icons_match_home_assistant_requirements(self) -> None:
         brand = COMPONENT / "brand"
