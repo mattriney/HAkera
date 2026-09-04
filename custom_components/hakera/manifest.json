@@ -9,5 +9,5 @@
   "issue_tracker": "https://github.com/your-account/home-assistant-hakera/issues",
   "loggers": ["custom_components.hakera"],
   "requirements": [],
-  "version": "0.4.2"
+  "version": "0.4.3"
 }

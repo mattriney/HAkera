@@ -188,6 +188,7 @@ class MakeraZ1ClientTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(snapshot.status.state, "Idle")
         self.assertEqual(snapshot.identity.serial, "Z1P000000X000001")
+        self.assertEqual(snapshot.identity.model, "Z1")
         self.assertEqual(snapshot.identity.firmware_version, "1.1.2.0.1.13")
         self.assertEqual(snapshot.spindle_report.current_rpm, 0.0)
         self.assertEqual(snapshot.diagnostic_fields["rssi"].value, -63.0)

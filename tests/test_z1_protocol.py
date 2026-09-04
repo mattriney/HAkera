@@ -196,8 +196,13 @@ class MakeraZ1ProtocolTest(unittest.TestCase):
         )
         self.assertEqual(
             parse_controller_info_line("model = Z1, 4, 1, 0, Idle"),
-            ("model", "Z1, 4, 1, 0, Idle"),
+            ("model", "Z1"),
         )
+        self.assertEqual(
+            parse_controller_info_line("model = Z1Pro"),
+            ("model", "Z1Pro"),
+        )
+        self.assertIsNone(parse_controller_info_line("model = , 4, 1, 0, Idle"))
         self.assertEqual(
             parse_controller_info_line("version = 1.1.2.0.1.13"),
             ("firmware_version", "1.1.2.0.1.13"),

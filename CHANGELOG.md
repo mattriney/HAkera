@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.3
+
+- Normalizes the firmware's compound model response to `Z1` for Home Assistant
+  device metadata while retaining the raw response in diagnostics fixtures.
+
 ## 0.4.2
 
 - Uses canonical Home Assistant imports and explicit non-optional runtime data.

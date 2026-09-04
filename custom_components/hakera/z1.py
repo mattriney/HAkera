@@ -1436,6 +1436,11 @@ def parse_controller_info_line(line: str) -> tuple[str, str | int] | None:
         "sys-time-data": "system_time",
     }[match.group(1).lower()]
 
+    if field == "model":
+        value = value.partition(",")[0].strip()
+        if not value:
+            return None
+
     if field == "controller_time":
         if not re.match(r"^\d{1,16}$", value):
             return None
