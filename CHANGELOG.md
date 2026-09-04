@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Adds automation-focused machine activity, controller-clear, spindle-speed,
+  camera-streaming, and controller-event visibility.
+
 ## 0.4.4
 
 - Stylizes the public integration name as `HAkera` and updates repository links

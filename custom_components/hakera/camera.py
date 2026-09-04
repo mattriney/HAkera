@@ -46,7 +46,6 @@ class MakeraZ1Camera(MakeraZ1Entity, Camera):
         super().__init__(coordinator, "camera")
         # CoordinatorEntity does not cooperatively initialize Camera in this MRO.
         Camera.__init__(self)
-        self._stream_clients = 0
 
     @property
     def is_on(self) -> bool:
@@ -56,7 +55,7 @@ class MakeraZ1Camera(MakeraZ1Entity, Camera):
     @property
     def is_streaming(self) -> bool:
         """Return whether Home Assistant currently has a live viewer."""
-        return self._stream_clients > 0
+        return self.coordinator.camera_stream_clients > 0
 
     async def async_camera_image(
         self,
@@ -99,8 +98,7 @@ class MakeraZ1Camera(MakeraZ1Entity, Camera):
             await frames.aclose()
             raise
 
-        self._stream_clients += 1
-        self.async_write_ha_state()
+        self.coordinator.async_update_camera_stream_clients(1)
         try:
             first_part = _encode_mjpeg_frame(first_frame)
             # Chrome displays the previous MJPEG part, so seed it with two frames.
@@ -116,8 +114,7 @@ class MakeraZ1Camera(MakeraZ1Entity, Camera):
             _LOGGER.debug("Makera Z1 camera stream ended: %s", err)
         finally:
             await frames.aclose()
-            self._stream_clients = max(0, self._stream_clients - 1)
-            self.async_write_ha_state()
+            self.coordinator.async_update_camera_stream_clients(-1)
             with suppress(ConnectionError, RuntimeError):
                 await response.write_eof()
 

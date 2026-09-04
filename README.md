@@ -32,6 +32,7 @@ Other Z1 models and firmware versions may work but have not yet been verified.
 
 - Machine, alarm, lid, emergency-stop, spindle, temperature, and diagnostic
   monitoring
+- Automation-focused activity, idle/clear, spindle-speed, and controller events
 - On-demand camera stills and live MJPEG video
 - Camera resolution selection from `160x120` through `1600x1200`
 - Work-light control and feedback
@@ -66,8 +67,9 @@ Then add HAkera from `Settings -> Devices & services`.
 
 | Platform | Entities |
 | --- | --- |
-| Sensors | Machine state, firmware, filesystem, tool, feed, spindle telemetry, temperatures, WiFi signal, alarm reason, and optional coordinates |
-| Binary sensors | Connection, alarm, soft limit, spindle running, lid, emergency stop, probe, tool setter, external input, and optional positive limits |
+| Sensors | Machine state, firmware, filesystem, tool, feed, spindle telemetry and deviation, temperatures, WiFi signal, alarm reason, and optional coordinates |
+| Binary sensors | Connection, alarm, soft limit, machine busy, controller idle and clear, spindle running and at speed, camera streaming, lid, emergency stop, probe, tool setter, external input, and optional positive limits |
+| Events | Controller alarms and alarm-cleared transitions with reason, code, axis, and direction details |
 | Camera | On-demand still images and live MJPEG video |
 | Light | Work light |
 | Fans | Spindle fan, control-box fan, and external output |

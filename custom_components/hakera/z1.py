@@ -1520,6 +1520,51 @@ def snapshot_is_alarmed(snapshot: MakeraZ1Snapshot | None) -> bool | None:
     )
 
 
+def snapshot_spindle_current_rpm(snapshot: MakeraZ1Snapshot) -> float | None:
+    """Return the best available spindle-speed reading."""
+    if snapshot.spindle_report.current_rpm is not None:
+        return snapshot.spindle_report.current_rpm
+    if snapshot.status.spindle and snapshot.status.spindle[0] is not None:
+        return snapshot.status.spindle[0]
+    return None
+
+
+def snapshot_spindle_target_rpm(snapshot: MakeraZ1Snapshot) -> float | None:
+    """Return the best available spindle target."""
+    if snapshot.spindle_report.target_rpm is not None:
+        return snapshot.spindle_report.target_rpm
+    spindle = snapshot.status.spindle
+    if spindle and len(spindle) > 1:
+        return spindle[1]
+    return None
+
+
+def snapshot_spindle_running(snapshot: MakeraZ1Snapshot | None) -> bool | None:
+    """Infer spindle-running state from read-only status."""
+    if snapshot is None:
+        return None
+    if snapshot.spindle_report.state:
+        return snapshot.spindle_report.state.lower() in {
+            "on",
+            "run",
+            "running",
+            "start",
+        }
+    current_rpm = snapshot_spindle_current_rpm(snapshot)
+    return current_rpm > 0 if current_rpm is not None else None
+
+
+def snapshot_spindle_speed_deviation(snapshot: MakeraZ1Snapshot) -> float | None:
+    """Return absolute RPM deviation as a percentage while the spindle runs."""
+    if snapshot_spindle_running(snapshot) is not True:
+        return None
+    current_rpm = snapshot_spindle_current_rpm(snapshot)
+    target_rpm = snapshot_spindle_target_rpm(snapshot)
+    if current_rpm is None or target_rpm is None or target_rpm <= 0:
+        return None
+    return abs(current_rpm - target_rpm) / target_rpm * 100
+
+
 def _alert_priority(alert: ControllerAlert) -> int:
     """Rank specific alarm causes above the generic alarm-lock response."""
     if alert.kind == "alarm_lock":

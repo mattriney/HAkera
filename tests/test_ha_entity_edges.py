@@ -14,13 +14,16 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.hakera.binary_sensor import (
     BINARY_SENSOR_DESCRIPTIONS,
     MakeraZ1BinarySensor,
+    _controller_idle_clear,
     _diagnostic_active,
+    _machine_busy,
     _soft_limit_alarm,
-    _spindle_running,
+    _spindle_at_speed,
 )
 from custom_components.hakera.camera import MakeraZ1Camera
 from custom_components.hakera.const import DOMAIN
 from custom_components.hakera.coordinator import MakeraZ1Coordinator
+from custom_components.hakera.event import _event_data
 from custom_components.hakera.fan import (
     FAN_DESCRIPTIONS,
     MakeraZ1Fan,
@@ -42,6 +45,8 @@ from custom_components.hakera.z1 import (
     MakeraZ1ResponseError,
     SpindleReport,
     parse_diagnostic_packet,
+    snapshot_spindle_running,
+    snapshot_spindle_speed_deviation,
 )
 
 HOST = "192.0.2.10"
@@ -77,19 +82,19 @@ def test_binary_sensor_fallbacks_and_alarm_attributes(
     """Test missing telemetry, spindle fallbacks, and detailed alarms."""
     coordinator.data = None
     assert _diagnostic_active("cover")(coordinator) is None
-    assert _spindle_running(None) is None
+    assert snapshot_spindle_running(None) is None
     assert _soft_limit_alarm(None) is None
 
-    assert _spindle_running(
+    assert snapshot_spindle_running(
         replace(idle_snapshot, spindle_report=SpindleReport(state="running"))
     )
-    assert not _spindle_running(
+    assert not snapshot_spindle_running(
         replace(idle_snapshot, spindle_report=SpindleReport(state="off"))
     )
-    assert _spindle_running(
+    assert snapshot_spindle_running(
         replace(idle_snapshot, spindle_report=SpindleReport(current_rpm=1))
     )
-    assert _spindle_running(
+    assert snapshot_spindle_running(
         replace(
             idle_snapshot,
             spindle_report=SpindleReport(),
@@ -97,7 +102,7 @@ def test_binary_sensor_fallbacks_and_alarm_attributes(
         )
     )
     assert (
-        _spindle_running(
+        snapshot_spindle_running(
             replace(
                 idle_snapshot,
                 spindle_report=SpindleReport(),
@@ -124,6 +129,70 @@ def test_binary_sensor_fallbacks_and_alarm_attributes(
         "axis": "X",
         "direction": "positive",
         "code": 21,
+    }
+
+
+@pytest.mark.parametrize(
+    ("state", "expected"),
+    [
+        ("Idle", False),
+        ("Alarm", False),
+        ("Run", True),
+        ("Hold:0", True),
+        ("Jog", True),
+        ("Home", True),
+        ("Unknown future state", None),
+    ],
+)
+def test_machine_busy_classifies_only_known_states(
+    idle_snapshot, state, expected
+) -> None:
+    """Test activity is not guessed for unknown firmware states."""
+    snapshot = replace(idle_snapshot, status=replace(idle_snapshot.status, state=state))
+    assert _machine_busy(snapshot) is expected
+
+
+def test_controller_clear_and_spindle_speed_helpers(coordinator, idle_snapshot) -> None:
+    """Test automation-focused composite state and spindle telemetry."""
+    assert _controller_idle_clear(coordinator)
+    coordinator.last_update_success = False
+    assert not _controller_idle_clear(coordinator)
+    coordinator.last_update_success = True
+    coordinator.data = replace(
+        idle_snapshot, status=replace(idle_snapshot.status, state="Home")
+    )
+    assert not _controller_idle_clear(coordinator)
+
+    running = replace(
+        idle_snapshot,
+        spindle_report=SpindleReport(
+            state="running", current_rpm=9500, target_rpm=10000
+        ),
+    )
+    assert snapshot_spindle_speed_deviation(running) == 5
+    assert _spindle_at_speed(running)
+
+    slow = replace(
+        running,
+        spindle_report=replace(running.spindle_report, current_rpm=8900),
+    )
+    assert snapshot_spindle_speed_deviation(slow) == 11
+    assert not _spindle_at_speed(slow)
+    assert snapshot_spindle_speed_deviation(idle_snapshot) is None
+
+    detailed_alert = ControllerAlert(
+        message="ALARM: Hard limit X-",
+        kind="hard_limit",
+        axis="X",
+        direction="negative",
+        code=21,
+    )
+    assert _event_data(detailed_alert) == {
+        "alarm_type": "hard_limit",
+        "reason": "ALARM: Hard limit X-",
+        "code": 21,
+        "axis": "X",
+        "direction": "negative",
     }
 
 

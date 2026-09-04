@@ -11,7 +11,8 @@ protocol client.
   serial number.
 - `coordinator.py` uses `DataUpdateCoordinator` for a single status poll that
   feeds all normal entities.
-- `sensor.py` and `binary_sensor.py` expose parsed status and diagnostic fields.
+- `sensor.py` and `binary_sensor.py` expose parsed and automation-focused state.
+- `event.py` preserves controller alarm transitions for Home Assistant automations.
 - `camera.py` converts the Z1 WebSocket JPEG feed into Home Assistant's direct
   MJPEG camera proxy without claiming ffmpeg/HLS stream support.
 - `light.py` exposes the work light, `fan.py` exposes feedback-backed accessory
@@ -65,6 +66,10 @@ all Home Assistant consumers, and drops stale queued frames for a slow consumer.
 The first still or live viewer starts the upstream stream; the final consumer
 leaving sends `stop_stream` and closes it. Still requests subscribe to the same
 broker, so they do not collide with an active dashboard stream.
+
+The coordinator tracks downstream live viewers separately from broker consumers.
+This keeps camera-streaming automations accurate without treating brief still or
+resolution requests as live viewing sessions.
 
 `camera.py` overrides `handle_async_mjpeg_stream` to wrap those JPEG frames in a
 multipart MJPEG response at Home Assistant's authenticated

@@ -24,7 +24,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import MakeraZ1ConfigEntry
 from .entity import MakeraZ1Entity
-from .z1 import MakeraZ1Snapshot
+from .z1 import MakeraZ1Snapshot, snapshot_spindle_speed_deviation
 
 RPM = "rpm"
 MILLIMETERS_PER_MINUTE = "mm/min"
@@ -151,6 +151,15 @@ SENSOR_DESCRIPTIONS: tuple[MakeraZ1SensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:pulse",
         value_fn=lambda snapshot: snapshot.spindle_report.pwm_value,
+    ),
+    MakeraZ1SensorEntityDescription(
+        key="spindle_speed_deviation",
+        translation_key="spindle_speed_deviation",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:speedometer-medium",
+        suggested_display_precision=1,
+        value_fn=snapshot_spindle_speed_deviation,
     ),
     MakeraZ1SensorEntityDescription(
         key="spindle_temperature",

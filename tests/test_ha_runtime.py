@@ -113,6 +113,43 @@ async def test_setup_exposes_entities_and_removes_obsolete_feedback_sensor(
     assert machine_state is not None
     assert machine_state.state == "Idle"
 
+    assert (
+        _state(hass, _entity_id(hass, "binary_sensor", f"{SERIAL}_machine_busy")).state
+        == STATE_OFF
+    )
+    assert (
+        _state(
+            hass,
+            _entity_id(hass, "binary_sensor", f"{SERIAL}_controller_idle_clear"),
+        ).state
+        == STATE_ON
+    )
+    assert (
+        _state(
+            hass, _entity_id(hass, "binary_sensor", f"{SERIAL}_spindle_at_speed")
+        ).state
+        == STATE_OFF
+    )
+    camera_streaming = _state(
+        hass, _entity_id(hass, "binary_sensor", f"{SERIAL}_camera_streaming")
+    )
+    assert camera_streaming.state == STATE_OFF
+    assert camera_streaming.attributes["viewer_count"] == 0
+    entry.runtime_data.coordinator.async_update_camera_stream_clients(1)
+    await hass.async_block_till_done()
+    camera_streaming = _state(hass, camera_streaming.entity_id)
+    assert camera_streaming.state == STATE_ON
+    assert camera_streaming.attributes["viewer_count"] == 1
+    entry.runtime_data.coordinator.async_update_camera_stream_clients(-1)
+    await hass.async_block_till_done()
+    assert _state(hass, camera_streaming.entity_id).state == STATE_OFF
+    assert (
+        _state(
+            hass, _entity_id(hass, "sensor", f"{SERIAL}_spindle_speed_deviation")
+        ).state
+        == "unknown"
+    )
+
     work_light = hass.states.get(
         _entity_id(hass, "light", f"{SERIAL}_work_light_control")
     )
@@ -121,6 +158,18 @@ async def test_setup_exposes_entities_and_removes_obsolete_feedback_sensor(
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     assert entry.state is ConfigEntryState.NOT_LOADED
+
+
+async def test_existing_alarm_is_not_replayed_as_a_new_event(
+    hass: HomeAssistant,
+    soft_limit_snapshot: MakeraZ1Snapshot,
+) -> None:
+    """Test setup exposes current alarm state without inventing an event."""
+    entry, _ = await _async_setup_entry(hass, soft_limit_snapshot)
+    event_id = _entity_id(hass, "event", f"{SERIAL}_controller_event")
+
+    assert _state(hass, event_id).state == "unknown"
+    assert await hass.config_entries.async_unload(entry.entry_id)
 
 
 async def test_soft_limit_status_updates_and_clears(
@@ -135,9 +184,11 @@ async def test_soft_limit_status_updates_and_clears(
     coordinator = entry.runtime_data.coordinator
     soft_limit_id = _entity_id(hass, "binary_sensor", f"{SERIAL}_soft_limit_alarm")
     reason_id = _entity_id(hass, "sensor", f"{SERIAL}_alarm_reason")
+    event_id = _entity_id(hass, "event", f"{SERIAL}_controller_event")
 
     assert _state(hass, soft_limit_id).state == STATE_OFF
     assert _state(hass, reason_id).state == "unknown"
+    assert _state(hass, event_id).state == "unknown"
 
     with patch("custom_components.hakera.MakeraZ1Client.async_fetch_snapshot", fetch):
         await coordinator.async_refresh()
@@ -149,12 +200,21 @@ async def test_soft_limit_status_updates_and_clears(
     assert alarm_state.attributes["code"] == 10
     assert "axis" not in alarm_state.attributes
     assert _state(hass, reason_id).state == "Soft Limit Triggered"
+    event_state = _state(hass, event_id)
+    assert event_state.attributes["event_type"] == "soft_limit"
+    assert event_state.attributes["alarm_type"] == "soft_limit"
+    assert event_state.attributes["reason"] == "Soft Limit Triggered"
+    assert event_state.attributes["code"] == 10
 
     with patch("custom_components.hakera.MakeraZ1Client.async_fetch_snapshot", fetch):
         await coordinator.async_refresh()
 
     assert _state(hass, soft_limit_id).state == STATE_OFF
     assert _state(hass, reason_id).state == "unknown"
+    cleared_event = _state(hass, event_id)
+    assert cleared_event.attributes["event_type"] == "alarm_cleared"
+    assert cleared_event.attributes["alarm_type"] == "soft_limit"
+    assert cleared_event.attributes["code"] == 10
 
 
 async def test_accessory_services_use_feedback(
@@ -231,7 +291,12 @@ async def test_camera_mjpeg_stream_adapter(
     """Test relaying upstream JPEGs as a finite MJPEG response."""
     entry, _ = await _async_setup_entry(hass, idle_snapshot)
     entity = MakeraZ1Camera(entry.runtime_data.coordinator)
-    entity.async_write_ha_state = MagicMock()
+    update_stream_clients = MagicMock(
+        wraps=entry.runtime_data.coordinator.async_update_camera_stream_clients
+    )
+    entry.runtime_data.coordinator.async_update_camera_stream_clients = (
+        update_stream_clients
+    )
     frames = (b"first-jpeg", b"second-jpeg")
 
     async def camera_frames():
@@ -261,7 +326,8 @@ async def test_camera_mjpeg_stream_adapter(
     ]
     response.write_eof.assert_awaited_once_with()
     assert entity.is_streaming is False
-    assert entity.async_write_ha_state.call_count == 2
+    assert update_stream_clients.call_args_list == [call(1), call(-1)]
+    assert entry.runtime_data.coordinator.camera_stream_clients == 0
 
 
 def _mjpeg_part(frame: bytes) -> bytes:
