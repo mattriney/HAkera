@@ -19,7 +19,7 @@ parser changes are reviewed instead of guessed.
 6. Run:
 
    ```powershell
-   python -m pytest --cov=custom_components.hakera --cov-report=term-missing --cov-fail-under=80
+   python -m pytest --cov=custom_components.hakera --cov-report=term-missing --cov-fail-under=95
    ```
 
 7. Commit the fixture with any required parser/entity changes.

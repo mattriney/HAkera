@@ -7,16 +7,19 @@ import pathlib
 import sys
 import unittest
 from types import ModuleType, SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 COMPONENT = ROOT / "custom_components" / "hakera"
 sys.path.append(str(COMPONENT))
 
 from z1 import (  # noqa: E402
+    CAMERA_RESOLUTIONS,
+    ControllerIdentity,
     ControlPacketParser,
     MakeraZ1CameraBusyError,
     MakeraZ1Client,
+    MakeraZ1ConnectionError,
     MakeraZ1ResponseError,
     build_control_packet,
 )
@@ -260,6 +263,104 @@ class MakeraZ1ClientTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(third.alert.code, 10)
         self.assertIsNone(fourth.alert)
 
+    async def test_cached_identity_is_not_requested_on_later_polls(self) -> None:
+        response = _snapshot_response()
+        reader = AsyncMock()
+        reader.read = AsyncMock(return_value=response)
+        writer = MagicMock()
+        writer.drain = AsyncMock()
+        writer.wait_closed = AsyncMock()
+        client = MakeraZ1Client("127.0.0.1")
+        client._identity = ControllerIdentity(serial="Z1P000000X000001")
+
+        with patch(
+            "z1.asyncio.open_connection",
+            AsyncMock(return_value=(reader, writer)),
+        ):
+            snapshot = await client.async_fetch_snapshot()
+
+        sent = b"".join(call.args[0] for call in writer.write.call_args_list)
+        commands = [
+            message.payload.decode("ascii")
+            for message in ControlPacketParser().push(sent)
+            if message.packet_type == 0xA2
+        ]
+        self.assertEqual(commands, ["diagnose", "M957"])
+        self.assertEqual(snapshot.identity.serial, "Z1P000000X000001")
+
+    async def test_snapshot_reports_connection_and_protocol_failures(self) -> None:
+        client = MakeraZ1Client("127.0.0.1")
+        with (
+            patch(
+                "z1.asyncio.open_connection",
+                AsyncMock(side_effect=OSError("offline")),
+            ),
+            self.assertRaises(MakeraZ1ConnectionError),
+        ):
+            await client.async_fetch_snapshot(include_identity=False)
+
+        reader = AsyncMock()
+        reader.read = AsyncMock(return_value=b"")
+        writer = MagicMock()
+        writer.drain = AsyncMock()
+        writer.wait_closed = AsyncMock()
+        with (
+            patch(
+                "z1.asyncio.open_connection",
+                AsyncMock(return_value=(reader, writer)),
+            ),
+            self.assertRaisesRegex(MakeraZ1ResponseError, "status packet"),
+        ):
+            await client.async_fetch_snapshot(include_identity=False)
+
+        bad_packet = bytearray(build_control_packet(0x81, b"<Idle>"))
+        bad_packet[5] ^= 1
+        reader.read = AsyncMock(return_value=bytes(bad_packet))
+        with (
+            patch(
+                "z1.asyncio.open_connection",
+                AsyncMock(return_value=(reader, writer)),
+            ),
+            self.assertRaisesRegex(MakeraZ1ResponseError, "CRC mismatch"),
+        ):
+            await client.async_fetch_snapshot(include_identity=False)
+
+    async def test_alarm_without_halt_code_uses_best_reported_reason(self) -> None:
+        responses = [
+            _snapshot_response(
+                state="Alarm", halt_code=0, line="Emergency stop button pressed"
+            ),
+            _snapshot_response(state="Alarm", halt_code=0, line="error:Alarm lock"),
+        ]
+        reader = AsyncMock()
+        reader.read = AsyncMock(side_effect=responses)
+        writer = MagicMock()
+        writer.drain = AsyncMock()
+        writer.wait_closed = AsyncMock()
+        client = MakeraZ1Client("127.0.0.1")
+
+        with patch(
+            "z1.asyncio.open_connection",
+            AsyncMock(return_value=(reader, writer)),
+        ):
+            first = await client.async_fetch_snapshot(include_identity=False)
+            second = await client.async_fetch_snapshot(include_identity=False)
+
+        self.assertEqual(first.alert.kind, "emergency_stop")
+        self.assertEqual(second.alert.kind, "emergency_stop")
+
+        fresh = MakeraZ1Client("127.0.0.1")
+        reader.read = AsyncMock(
+            return_value=_snapshot_response(state="Alarm", halt_code=0)
+        )
+        with patch(
+            "z1.asyncio.open_connection",
+            AsyncMock(return_value=(reader, writer)),
+        ):
+            generic = await fresh.async_fetch_snapshot(include_identity=False)
+        self.assertEqual(generic.alert.kind, "controller_alarm")
+        self.assertEqual(generic.alert.message, "Alarm")
+
     async def test_set_output_uses_allowlist_and_confirms_feedback(self) -> None:
         received_commands: list[str] = []
 
@@ -320,6 +421,46 @@ class MakeraZ1ClientTest(unittest.IsolatedAsyncioTestCase):
         finally:
             server.close()
             await server.wait_closed()
+
+    async def test_output_validation_and_connection_failures(self) -> None:
+        client = MakeraZ1Client("127.0.0.1")
+        with self.assertRaisesRegex(ValueError, "Unsupported"):
+            await client.async_set_output("unknown", True)
+
+        client.async_set_output = AsyncMock(return_value="diagnostic")
+        self.assertEqual(await client.async_set_work_light(True), "diagnostic")
+        client.async_set_output.assert_awaited_once_with("work_light", True)
+
+        client = MakeraZ1Client("127.0.0.1")
+        with (
+            patch(
+                "z1.asyncio.open_connection",
+                AsyncMock(side_effect=OSError("offline")),
+            ),
+            self.assertRaises(MakeraZ1ConnectionError),
+        ):
+            await client.async_set_output("power_fan", True, 20)
+
+    async def test_diagnostic_poll_rejects_errors_and_missing_feedback(self) -> None:
+        writer = MagicMock()
+        writer.drain = AsyncMock()
+        writer.wait_closed = AsyncMock()
+        client = MakeraZ1Client("127.0.0.1")
+
+        for response, error in (
+            (build_control_packet(0x83, b"error:Alarm lock\n"), "Alarm lock"),
+            (b"", "diagnostic feedback"),
+        ):
+            reader = AsyncMock()
+            reader.read = AsyncMock(return_value=response)
+            with (
+                patch(
+                    "z1.asyncio.open_connection",
+                    AsyncMock(return_value=(reader, writer)),
+                ),
+                self.assertRaisesRegex(MakeraZ1ResponseError, error),
+            ):
+                await client._async_fetch_diagnostic()
 
     async def test_camera_image_opens_and_releases_on_demand_stream(self) -> None:
         session = _FakeSession()
@@ -405,6 +546,86 @@ class MakeraZ1ClientTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(websocket.sent, ["start_stream", "stop_stream"])
 
+    async def test_camera_stream_rejects_unavailable_and_invalid_sources(self) -> None:
+        client = MakeraZ1Client("127.0.0.1")
+        frames = client.async_camera_frames()
+        with (
+            patch.dict(sys.modules, {"aiohttp": _fake_aiohttp_module()}),
+            self.assertRaisesRegex(MakeraZ1ConnectionError, "No HTTP client"),
+        ):
+            await asyncio.wait_for(anext(frames), timeout=1)
+        await frames.aclose()
+
+        session = _FakeSession()
+        client = MakeraZ1Client("127.0.0.1", session=session)
+        self.addAsyncCleanup(client.async_close)
+        frames = client.async_camera_frames()
+        with patch.dict(sys.modules, {"aiohttp": _fake_aiohttp_module()}):
+            frame_task = asyncio.create_task(anext(frames))
+            await asyncio.wait_for(session.connected.wait(), timeout=1)
+            websocket = session.connections[0]
+            await websocket.messages.put(
+                SimpleNamespace(type=_FakeWSMsgType.BINARY, data=b"not-jpeg")
+            )
+            with self.assertRaisesRegex(MakeraZ1ResponseError, "non-JPEG"):
+                await asyncio.wait_for(frame_task, timeout=1)
+            await asyncio.wait_for(websocket.closed_event.wait(), timeout=1)
+        await frames.aclose()
+
+    async def test_camera_stream_ignores_info_and_reports_socket_close(self) -> None:
+        session = _FakeSession()
+        client = MakeraZ1Client("127.0.0.1", session=session)
+        self.addAsyncCleanup(client.async_close)
+        frames = client.async_camera_frames()
+        jpeg = b"\xff\xd8frame\xff\xd9"
+
+        with patch.dict(sys.modules, {"aiohttp": _fake_aiohttp_module()}):
+            frame_task = asyncio.create_task(anext(frames))
+            await asyncio.wait_for(session.connected.wait(), timeout=1)
+            websocket = session.connections[0]
+            await websocket.messages.put(
+                SimpleNamespace(type=_FakeWSMsgType.TEXT, data="camera ready")
+            )
+            await websocket.messages.put(
+                SimpleNamespace(type=_FakeWSMsgType.BINARY, data=jpeg)
+            )
+            self.assertEqual(await asyncio.wait_for(frame_task, timeout=1), jpeg)
+            await frames.aclose()
+            await asyncio.wait_for(websocket.closed_event.wait(), timeout=1)
+
+        session = _FakeSession()
+        client = MakeraZ1Client("127.0.0.1", session=session)
+        self.addAsyncCleanup(client.async_close)
+        frames = client.async_camera_frames()
+        with patch.dict(sys.modules, {"aiohttp": _fake_aiohttp_module()}):
+            frame_task = asyncio.create_task(anext(frames))
+            await asyncio.wait_for(session.connected.wait(), timeout=1)
+            websocket = session.connections[0]
+            await websocket.messages.put(
+                SimpleNamespace(type=_FakeWSMsgType.CLOSED, data=None)
+            )
+            with self.assertRaisesRegex(MakeraZ1ConnectionError, "closed"):
+                await asyncio.wait_for(frame_task, timeout=1)
+        await frames.aclose()
+
+    async def test_camera_client_close_releases_waiters_and_blocks_reuse(self) -> None:
+        session = _FakeSession()
+        client = MakeraZ1Client("127.0.0.1", session=session)
+        frames = client.async_camera_frames()
+
+        with patch.dict(sys.modules, {"aiohttp": _fake_aiohttp_module()}):
+            frame_task = asyncio.create_task(anext(frames))
+            await asyncio.wait_for(session.connected.wait(), timeout=1)
+            await client.async_close()
+            with self.assertRaises(StopAsyncIteration):
+                await asyncio.wait_for(frame_task, timeout=1)
+        await frames.aclose()
+
+        closed_frames = client.async_camera_frames()
+        with self.assertRaisesRegex(MakeraZ1ConnectionError, "closed"):
+            await anext(closed_frames)
+        await closed_frames.aclose()
+
     async def test_camera_resolution_is_verified_from_stream_dimensions(self) -> None:
         session = _FakeSession()
         session.post_frame = _jpeg_with_dimensions(640, 480)
@@ -431,6 +652,83 @@ class MakeraZ1ClientTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(session.responses[0].released)
         self.assertEqual(client.camera_resolution_option, "640x480")
 
+    async def test_camera_resolution_shortcuts_and_validation(self) -> None:
+        client = MakeraZ1Client("127.0.0.1")
+        with self.assertRaisesRegex(ValueError, "Unsupported"):
+            await client.async_set_camera_resolution(99)
+        with self.assertRaisesRegex(MakeraZ1ConnectionError, "No HTTP client"):
+            await client.async_set_camera_resolution(10)
+
+        session = _FakeSession()
+        client = MakeraZ1Client("127.0.0.1", session=session)
+        self.addAsyncCleanup(client.async_close)
+        with patch.dict(sys.modules, {"aiohttp": _fake_aiohttp_module()}):
+            setting_task = asyncio.create_task(client.async_set_camera_resolution(10))
+            await asyncio.wait_for(session.connected.wait(), timeout=1)
+            websocket = session.connections[0]
+            await websocket.messages.put(
+                SimpleNamespace(
+                    type=_FakeWSMsgType.BINARY,
+                    data=_jpeg_with_dimensions(640, 480),
+                )
+            )
+            await asyncio.wait_for(setting_task, timeout=1)
+            await asyncio.wait_for(websocket.closed_event.wait(), timeout=1)
+        self.assertEqual(session.posts, [])
+        self.assertEqual(client.camera_resolution_option, "640x480")
+
+    async def test_camera_resolution_reports_post_and_stream_failures(self) -> None:
+        response = _FakeResponse(status=500, body="failed to apply")
+        session = _FakeSession()
+        session.post = AsyncMock(return_value=response)
+        client = MakeraZ1Client("127.0.0.1", session=session)
+        with (
+            patch.dict(sys.modules, {"aiohttp": _fake_aiohttp_module()}),
+            self.assertRaisesRegex(MakeraZ1ResponseError, "failed to apply"),
+        ):
+            await client._async_post_camera_resolution(CAMERA_RESOLUTIONS[9])
+        self.assertTrue(response.released)
+
+        session.post = AsyncMock(side_effect=_FakeClientError("offline"))
+        with (
+            patch.dict(sys.modules, {"aiohttp": _fake_aiohttp_module()}),
+            self.assertRaises(MakeraZ1ConnectionError),
+        ):
+            await client._async_post_camera_resolution(CAMERA_RESOLUTIONS[9])
+
+        async def no_frames():
+            if False:
+                yield b""
+
+        client.async_camera_frames = MagicMock(side_effect=no_frames)
+        with self.assertRaisesRegex(MakeraZ1ResponseError, "after two attempts"):
+            await client.async_set_camera_resolution(10)
+
+        with self.assertRaisesRegex(MakeraZ1ConnectionError, "without a frame"):
+            await client.async_get_camera_image()
+
+    async def test_camera_resolution_wait_and_observation_edges(self) -> None:
+        session = _FakeSession()
+        client = MakeraZ1Client("127.0.0.1", session=session, camera_timeout=0)
+
+        async def one_frame():
+            yield _jpeg_with_dimensions(320, 240)
+
+        self.assertFalse(
+            await client._async_wait_for_camera_resolution(
+                one_frame(), CAMERA_RESOLUTIONS[9]
+            )
+        )
+
+        client.camera_timeout = 1
+        self.assertFalse(
+            await client._async_wait_for_camera_resolution(
+                one_frame(), CAMERA_RESOLUTIONS[9]
+            )
+        )
+        client.observe_camera_frame(b"not-jpeg")
+        self.assertIsNone(client.camera_resolution_option)
+
 
 def _jpeg_with_dimensions(width: int, height: int) -> bytes:
     """Build a minimal JPEG header with a baseline SOF segment."""
@@ -442,6 +740,35 @@ def _jpeg_with_dimensions(width: int, height: int) -> bytes:
             b"\x03\x01\x11\x00\x02\x11\x00\x03\x11\x00\xff\xd9",
         )
     )
+
+
+def _snapshot_response(
+    *,
+    state: str = "Idle",
+    halt_code: int = 0,
+    line: str | None = None,
+) -> bytes:
+    """Build one complete read-only controller response."""
+    packets = [
+        build_control_packet(
+            0x81,
+            (
+                f"<{state}|MPos:-1,-1,-1,0|WPos:0,0,0,0|F:0,0|"
+                f"S:0,10000,100|T:1|O:100|H:{halt_code}|C:1,0>"
+            ).encode(),
+        ),
+        build_control_packet(
+            0x83,
+            b"{S:0,10000,0,0,26,23|G:0,0,0,0,0|P:0,0|I:0|E:0,0,0,0,0,0,1,0|RSSI:-63}",
+        ),
+        build_control_packet(
+            0x83,
+            b"State: off, Current RPM: 0 Target RPM: 10000 PWM value: 0.000\n",
+        ),
+    ]
+    if line is not None:
+        packets.append(build_control_packet(0x83, f"{line}\n".encode()))
+    return b"".join(packets)
 
 
 if __name__ == "__main__":

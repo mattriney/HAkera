@@ -53,4 +53,4 @@ jobs:
           python -m pytest
           --cov=custom_components.hakera
           --cov-report=term-missing
-          --cov-fail-under=80
+          --cov-fail-under=95

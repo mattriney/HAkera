@@ -5,6 +5,7 @@
 - Adds serial-verified host reconfiguration from the Home Assistant UI.
 - Makes newly captured firmware fixtures replayable and automatically redacts
   the controller serial before writing them.
+- Expands failure-path coverage to 98% and raises the enforced CI floor to 95%.
 
 ## 0.4.0
 
