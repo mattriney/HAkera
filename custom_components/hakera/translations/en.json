@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "title": "Hakera",
+        "title": "HAkera",
         "description": "Enter the LAN host or IP address for the Makera Z1.",
         "data": {
           "host": "Host"

@@ -1,4 +1,4 @@
-"""Verify that a Hakera release tag matches all version declarations."""
+"""Verify that an HAkera release tag matches all version declarations."""
 
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ def main() -> None:
     parser.add_argument("tag", help="Git tag, for example v0.4.1")
     args = parser.parse_args()
     version = validate_release(ROOT, args.tag)
-    print(f"Release metadata agrees on Hakera {version}.")
+    print(f"Release metadata agrees on HAkera {version}.")
 
 
 if __name__ == "__main__":

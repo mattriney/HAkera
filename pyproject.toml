@@ -1,15 +1,15 @@
 [project]
-name = "home-assistant-hakera"
-version = "0.4.3"
+name = "hakera"
+version = "0.4.4"
 description = "Home Assistant integration for Makera Z1 monitoring and accessory control"
 readme = "README.md"
 requires-python = ">=3.14.2"
 license = "MIT"
 
 [project.urls]
-Documentation = "https://github.com/mattriney/home-assistant-hakera"
-Issues = "https://github.com/mattriney/home-assistant-hakera/issues"
-Source = "https://github.com/mattriney/home-assistant-hakera"
+Documentation = "https://github.com/mattriney/HAkera"
+Issues = "https://github.com/mattriney/HAkera/issues"
+Source = "https://github.com/mattriney/HAkera"
 
 [tool.ruff]
 line-length = 88

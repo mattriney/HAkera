@@ -28,6 +28,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: >-
           gh release create "$GITHUB_REF_NAME"
-          --title "Hakera ${GITHUB_REF_NAME#v}"
+          --title "HAkera ${GITHUB_REF_NAME#v}"
           --generate-notes
           --verify-tag

@@ -1,4 +1,4 @@
-"""Tests for Hakera release metadata consistency."""
+"""Tests for HAkera release metadata consistency."""
 
 from __future__ import annotations
 
