@@ -15,11 +15,11 @@ from homeassistant.components.sensor import (
 from homeassistant.const import (
     CONF_HOST,
     PERCENTAGE,
+    EntityCategory,
     UnitOfLength,
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import MakeraZ1ConfigEntry

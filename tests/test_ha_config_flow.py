@@ -235,16 +235,52 @@ async def test_validate_host_requires_a_serial_number(
     client.async_fetch_snapshot = AsyncMock(
         return_value=SimpleNamespace(identity=SimpleNamespace(serial=serial))
     )
+    client.async_close = AsyncMock()
+    session = object()
 
-    with patch(
-        "custom_components.hakera.config_flow.MakeraZ1Client",
-        return_value=client,
-    ) as client_class:
+    with (
+        patch(
+            "custom_components.hakera.config_flow.async_get_clientsession",
+            return_value=session,
+        ) as get_session,
+        patch(
+            "custom_components.hakera.config_flow.MakeraZ1Client",
+            return_value=client,
+        ) as client_class,
+    ):
         if expected_error is None:
             assert await _async_validate_host(hass, HOST) == SERIAL
         else:
             with pytest.raises(expected_error):
                 await _async_validate_host(hass, HOST)
 
-    client_class.assert_called_once_with(HOST)
+    get_session.assert_called_once_with(hass)
+    client_class.assert_called_once_with(HOST, session=session)
     client.async_fetch_snapshot.assert_awaited_once_with(include_identity=True)
+    client.async_close.assert_awaited_once_with()
+
+
+async def test_validate_host_closes_client_after_transport_failure(
+    hass: HomeAssistant,
+) -> None:
+    """Test temporary config-flow clients close when probing fails."""
+    client = MagicMock()
+    client.async_fetch_snapshot = AsyncMock(
+        side_effect=MakeraZ1ConnectionError("offline")
+    )
+    client.async_close = AsyncMock()
+
+    with (
+        patch(
+            "custom_components.hakera.config_flow.async_get_clientsession",
+            return_value=object(),
+        ),
+        patch(
+            "custom_components.hakera.config_flow.MakeraZ1Client",
+            return_value=client,
+        ),
+        pytest.raises(MakeraZ1ConnectionError, match="offline"),
+    ):
+        await _async_validate_host(hass, HOST)
+
+    client.async_close.assert_awaited_once_with()

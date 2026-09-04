@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import MakeraZ1ConfigEntry
@@ -178,7 +179,7 @@ class MakeraZ1BinarySensor(MakeraZ1Entity, BinarySensorEntity):
         return self.entity_description.value_fn(self.coordinator)
 
     @property
-    def extra_state_attributes(self) -> dict[str, str] | None:
+    def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return parsed details for controller alarm entities."""
         if self.entity_description.key not in {"alarm", "soft_limit_alarm"}:
             return None
@@ -186,7 +187,10 @@ class MakeraZ1BinarySensor(MakeraZ1Entity, BinarySensorEntity):
         if not snapshot or not snapshot.alert:
             return None
         alert = snapshot.alert
-        attributes = {"reason": alert.message, "type": alert.kind}
+        attributes: dict[str, Any] = {
+            "reason": alert.message,
+            "type": alert.kind,
+        }
         if alert.axis:
             attributes["axis"] = alert.axis
         if alert.direction:

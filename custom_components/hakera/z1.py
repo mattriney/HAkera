@@ -776,11 +776,15 @@ class MakeraZ1Client:
         """Send one idempotent camera framesize request."""
         from aiohttp import ClientError
 
+        session = self.session
+        if session is None:
+            raise MakeraZ1ConnectionError("No HTTP client session is available.")
+
         response = None
         url = f"http://{self.host}/api/camera/resolution"
         try:
             response = await asyncio.wait_for(
-                self.session.post(url, json={"resolution": resolution.value}),
+                session.post(url, json={"resolution": resolution.value}),
                 timeout=self.camera_timeout,
             )
             message = (

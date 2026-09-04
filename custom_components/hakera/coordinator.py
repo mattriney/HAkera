@@ -40,6 +40,7 @@ class MakeraZ1Coordinator(DataUpdateCoordinator[MakeraZ1Snapshot]):
             update_interval=DEFAULT_SCAN_INTERVAL,
             always_update=False,
         )
+        self.entry = config_entry
         self.client = client
 
     @property
@@ -47,7 +48,7 @@ class MakeraZ1Coordinator(DataUpdateCoordinator[MakeraZ1Snapshot]):
         """Return the stable device identifier."""
         if self.data and self.data.identity.serial:
             return self.data.identity.serial
-        return self.config_entry.unique_id or self.config_entry.entry_id
+        return self.entry.unique_id or self.entry.entry_id
 
     async def _async_update_data(self) -> MakeraZ1Snapshot:
         """Fetch one device snapshot."""

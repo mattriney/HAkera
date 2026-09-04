@@ -8,6 +8,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import DOMAIN
 from .z1 import MakeraZ1Client, MakeraZ1ConnectionError, MakeraZ1Error
@@ -92,9 +93,12 @@ class MakeraZ1ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 async def _async_validate_host(hass: HomeAssistant, host: str) -> str:
     """Validate the host and return the stable controller serial number."""
-    client = MakeraZ1Client(host)
-    snapshot = await client.async_fetch_snapshot(include_identity=True)
-    serial = snapshot.identity.serial
-    if not serial:
-        raise MakeraZ1Error("The controller did not return a serial number.")
-    return serial
+    client = MakeraZ1Client(host, session=async_get_clientsession(hass))
+    try:
+        snapshot = await client.async_fetch_snapshot(include_identity=True)
+        serial = snapshot.identity.serial
+        if not serial:
+            raise MakeraZ1Error("The controller did not return a serial number.")
+        return serial
+    finally:
+        await client.async_close()

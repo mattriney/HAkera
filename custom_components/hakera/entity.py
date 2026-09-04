@@ -30,7 +30,7 @@ class MakeraZ1Entity(CoordinatorEntity[MakeraZ1Coordinator]):
             identifiers={(DOMAIN, self.coordinator.device_identifier)},
             manufacturer=MANUFACTURER,
             model=model,
-            name=self.coordinator.config_entry.title,
+            name=self.coordinator.entry.title,
             serial_number=identity.serial if identity else None,
             sw_version=identity.firmware_version if identity else None,
             configuration_url=f"http://{self.coordinator.client.host}",

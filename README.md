@@ -183,6 +183,7 @@ protocol suite:
 
 ```powershell
 python -m pip install -r requirements_test.txt
+python -m pyright --pythonpath (python -c "import sys; print(sys.executable)")
 python -m pytest --cov=custom_components.hakera --cov-report=term-missing --cov-fail-under=95
 ```
 
@@ -210,6 +211,7 @@ The GitHub workflow runs:
 - HACS validation
 - Home Assistant hassfest validation
 - Ruff lint and format checks
+- Pyright type checking against the pinned Home Assistant runtime
 - Home Assistant runtime and protocol tests with a 95% coverage floor
 
 ## Repository layout

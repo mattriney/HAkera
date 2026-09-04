@@ -1,6 +1,6 @@
 [project]
 name = "home-assistant-hakera"
-version = "0.4.1"
+version = "0.4.2"
 description = "Hakera integration for Makera Z1 / Z1 Pro monitoring and accessory control"
 readme = "README.md"
 requires-python = ">=3.14.2"
@@ -13,6 +13,8 @@ target-version = "py312"
 select = ["B", "C4", "E", "F", "I", "N", "UP", "W"]
 
 [tool.pyright]
+include = ["custom_components/hakera", "tools"]
+extraPaths = ["custom_components/hakera"]
 pythonVersion = "3.14"
 typeCheckingMode = "basic"
 

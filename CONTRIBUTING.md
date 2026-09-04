@@ -18,6 +18,7 @@ python -m pip install -r requirements_test.txt
 python -m compileall -q custom_components tests tools
 python -m ruff check .
 python -m ruff format --check .
+python -m pyright --pythonpath (python -c "import sys; print(sys.executable)")
 python -m pytest --cov=custom_components.hakera --cov-report=term-missing --cov-fail-under=95
 ```
 

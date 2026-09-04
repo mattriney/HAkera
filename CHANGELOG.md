@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.2
+
+- Uses canonical Home Assistant imports and explicit non-optional runtime data.
+- Closes temporary config-flow clients after both successful and failed probes.
+- Adds pinned Pyright type checking to the local and GitHub validation suite.
+
 ## 0.4.1
 
 - Adds serial-verified host reconfiguration from the Home Assistant UI.
