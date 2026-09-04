@@ -55,13 +55,6 @@ If DHCP assigns the machine a different address, open the Hakera integration in
 Hakera verifies the controller serial number before updating and reloading the
 entry.
 
-### Replacing Makera Z1 0.3.x
-
-Hakera `0.4.0` intentionally replaces the old `makera_z1` integration domain.
-Remove the old `Makera Z1` config entry and its `custom_components/makera_z1`
-folder before installing Hakera, restart Home Assistant, then add `Hakera` as a
-new integration. Existing entity IDs and dashboard references are not migrated.
-
 ## Removal
 
 1. Go to `Settings -> Devices & services` and open `Hakera`.
