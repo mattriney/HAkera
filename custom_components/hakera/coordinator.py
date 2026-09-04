@@ -42,6 +42,7 @@ class MakeraZ1Coordinator(DataUpdateCoordinator[MakeraZ1Snapshot]):
         )
         self.entry = config_entry
         self.client = client
+        self._camera_stream_clients = 0
 
     @property
     def device_identifier(self) -> str:
@@ -49,6 +50,17 @@ class MakeraZ1Coordinator(DataUpdateCoordinator[MakeraZ1Snapshot]):
         if self.data and self.data.identity.serial:
             return self.data.identity.serial
         return self.entry.unique_id or self.entry.entry_id
+
+    @property
+    def camera_stream_clients(self) -> int:
+        """Return the number of active Home Assistant camera viewers."""
+        return self._camera_stream_clients
+
+    @callback
+    def async_update_camera_stream_clients(self, change: int) -> None:
+        """Update the active camera-viewer count and notify entities."""
+        self._camera_stream_clients = max(0, self._camera_stream_clients + change)
+        self.async_update_listeners()
 
     async def _async_update_data(self) -> MakeraZ1Snapshot:
         """Fetch one device snapshot."""

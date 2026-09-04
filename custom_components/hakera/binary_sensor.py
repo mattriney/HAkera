@@ -16,12 +16,15 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import MakeraZ1ConfigEntry
+from .const import SPINDLE_AT_SPEED_TOLERANCE_PERCENT
 from .coordinator import MakeraZ1Coordinator
 from .entity import MakeraZ1Entity
 from .z1 import (
     MakeraZ1Snapshot,
     diagnostic_switch_is_active,
     snapshot_is_alarmed,
+    snapshot_spindle_running,
+    snapshot_spindle_speed_deviation,
 )
 
 
@@ -72,7 +75,32 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[MakeraZ1BinarySensorEntityDescription, ...] = 
         key="spindle_running",
         translation_key="spindle_running",
         device_class=BinarySensorDeviceClass.RUNNING,
-        value_fn=lambda coordinator: _spindle_running(coordinator.data),
+        value_fn=lambda coordinator: snapshot_spindle_running(coordinator.data),
+    ),
+    MakeraZ1BinarySensorEntityDescription(
+        key="machine_busy",
+        translation_key="machine_busy",
+        device_class=BinarySensorDeviceClass.RUNNING,
+        value_fn=lambda coordinator: _machine_busy(coordinator.data),
+    ),
+    MakeraZ1BinarySensorEntityDescription(
+        key="controller_idle_clear",
+        translation_key="controller_idle_clear",
+        icon="mdi:check-circle-outline",
+        value_fn=lambda coordinator: _controller_idle_clear(coordinator),
+    ),
+    MakeraZ1BinarySensorEntityDescription(
+        key="spindle_at_speed",
+        translation_key="spindle_at_speed",
+        icon="mdi:speedometer-check",
+        value_fn=lambda coordinator: _spindle_at_speed(coordinator.data),
+    ),
+    MakeraZ1BinarySensorEntityDescription(
+        key="camera_streaming",
+        translation_key="camera_streaming",
+        device_class=BinarySensorDeviceClass.RUNNING,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda coordinator: coordinator.camera_stream_clients > 0,
     ),
     MakeraZ1BinarySensorEntityDescription(
         key="lid",
@@ -181,6 +209,16 @@ class MakeraZ1BinarySensor(MakeraZ1Entity, BinarySensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return parsed details for controller alarm entities."""
+        if self.entity_description.key == "camera_streaming":
+            return {"viewer_count": self.coordinator.camera_stream_clients}
+        if self.entity_description.key == "spindle_at_speed":
+            snapshot = self.coordinator.data
+            if snapshot is None:
+                return None
+            return {
+                "tolerance_percent": SPINDLE_AT_SPEED_TOLERANCE_PERCENT,
+                "deviation_percent": snapshot_spindle_speed_deviation(snapshot),
+            }
         if self.entity_description.key not in {"alarm", "soft_limit_alarm"}:
             return None
         snapshot = self.coordinator.data
@@ -200,21 +238,52 @@ class MakeraZ1BinarySensor(MakeraZ1Entity, BinarySensorEntity):
         return attributes
 
 
-def _spindle_running(snapshot: MakeraZ1Snapshot | None) -> bool | None:
-    """Infer spindle-running state from read-only status."""
-    if not snapshot:
+_BUSY_STATES = {"check", "home", "homing", "hold", "jog", "probe", "probing", "run"}
+_NOT_BUSY_STATES = {"alarm", "door", "halt", "idle", "sleep"}
+
+
+def _machine_busy(snapshot: MakeraZ1Snapshot | None) -> bool | None:
+    """Return activity only for recognized controller states."""
+    if snapshot is None:
         return None
-
-    if snapshot.spindle_report.state:
-        return snapshot.spindle_report.state.lower() in {"on", "running", "start"}
-
-    if snapshot.spindle_report.current_rpm is not None:
-        return snapshot.spindle_report.current_rpm > 0
-
-    if snapshot.status.spindle and snapshot.status.spindle[0] is not None:
-        return snapshot.status.spindle[0] > 0
-
+    state = snapshot.status.state.partition(":")[0].strip().lower()
+    if state in _BUSY_STATES:
+        return True
+    if state in _NOT_BUSY_STATES:
+        return False
     return None
+
+
+def _controller_idle_clear(coordinator: MakeraZ1Coordinator) -> bool | None:
+    """Return whether the connected controller is idle and fault-free."""
+    snapshot = coordinator.data
+    if snapshot is None:
+        return None
+    if not coordinator.last_update_success:
+        return False
+    if snapshot.status.state.strip().lower() != "idle":
+        return False
+    if snapshot_is_alarmed(snapshot):
+        return False
+    emergency_stop = diagnostic_switch_is_active(
+        snapshot.diagnostic_fields.get("emergencyStop")
+    )
+    return not emergency_stop if emergency_stop is not None else None
+
+
+def _spindle_at_speed(snapshot: MakeraZ1Snapshot | None) -> bool | None:
+    """Return whether a running spindle is within its target tolerance."""
+    if snapshot is None:
+        return None
+    running = snapshot_spindle_running(snapshot)
+    if running is None:
+        return None
+    if not running:
+        return False
+    deviation = snapshot_spindle_speed_deviation(snapshot)
+    if deviation is None:
+        return None
+    return deviation <= SPINDLE_AT_SPEED_TOLERANCE_PERCENT
 
 
 def _soft_limit_alarm(snapshot: MakeraZ1Snapshot | None) -> bool | None:

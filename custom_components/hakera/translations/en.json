@@ -33,6 +33,10 @@
       "alarm": { "name": "Alarm" },
       "soft_limit_alarm": { "name": "Soft-limit alarm" },
       "spindle_running": { "name": "Spindle running" },
+      "machine_busy": { "name": "Machine busy" },
+      "controller_idle_clear": { "name": "Controller idle and clear" },
+      "spindle_at_speed": { "name": "Spindle at speed" },
+      "camera_streaming": { "name": "Camera streaming" },
       "lid": { "name": "Lid" },
       "emergency_stop": { "name": "Emergency stop" },
       "probe": { "name": "Probe" },
@@ -45,6 +49,9 @@
     },
     "camera": {
       "live_view": { "name": "Camera" }
+    },
+    "event": {
+      "controller": { "name": "Controller event" }
     },
     "fan": {
       "spindle_fan": { "name": "Spindle fan" },
@@ -69,6 +76,7 @@
       "spindle_target_rpm": { "name": "Spindle target RPM" },
       "spindle_scale": { "name": "Spindle scale" },
       "spindle_pwm_value": { "name": "Spindle PWM value" },
+      "spindle_speed_deviation": { "name": "Spindle speed deviation" },
       "spindle_temperature": { "name": "Spindle temperature" },
       "power_temperature": { "name": "Control-box temperature" },
       "wifi_signal": { "name": "WiFi signal" },
