@@ -1,6 +1,6 @@
-# Hakera
+# HAkera
 
-Hakera is a Home Assistant custom integration for monitoring Makera Z1 CNC
+HAkera is a Home Assistant custom integration for monitoring Makera Z1 CNC
 machines and controlling a small set of non-motion accessories over the local
 network. It targets the Z1 product family and was initially developed and tested
 on the Z1 Pro submodel.
@@ -31,10 +31,10 @@ Confirmed device interfaces used here:
 ### HACS custom repository
 
 1. Add this repository to HACS as a custom repository of type `Integration`.
-2. Install `Hakera`.
+2. Install `HAkera`.
 3. Restart Home Assistant.
 4. Go to `Settings -> Devices & services -> Add integration`.
-5. Search for `Hakera`.
+5. Search for `HAkera`.
 6. Enter the Z1 host or IP address.
 
 ### Manual installation
@@ -50,16 +50,16 @@ Restart Home Assistant, then add the integration from the UI.
 
 ### Changing the Z1 address
 
-If DHCP assigns the machine a different address, open the Hakera integration in
+If DHCP assigns the machine a different address, open the HAkera integration in
 `Settings -> Devices & services`, choose `Reconfigure`, and enter the new host.
-Hakera verifies the controller serial number before updating and reloading the
+HAkera verifies the controller serial number before updating and reloading the
 entry.
 
 ## Removal
 
-1. Go to `Settings -> Devices & services` and open `Hakera`.
+1. Go to `Settings -> Devices & services` and open `HAkera`.
 2. Open the integration entry menu and select `Delete`.
-3. To remove the files as well, uninstall `Hakera` in HACS or delete
+3. To remove the files as well, uninstall `HAkera` in HACS or delete
    `custom_components/hakera`, then restart Home Assistant.
 
 ## Entities
@@ -230,4 +230,4 @@ machine.
 
 ## License
 
-Hakera is released under the [MIT License](LICENSE).
+HAkera is released under the [MIT License](LICENSE).

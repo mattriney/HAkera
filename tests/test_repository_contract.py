@@ -36,7 +36,7 @@ class RepositoryContractTest(unittest.TestCase):
     def test_manifest_matches_home_assistant_basics(self) -> None:
         manifest = json.loads((COMPONENT / "manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["domain"], "hakera")
-        self.assertEqual(manifest["name"], "Hakera")
+        self.assertEqual(manifest["name"], "HAkera")
         self.assertTrue(manifest["config_flow"])
         self.assertEqual(manifest["integration_type"], "device")
         self.assertEqual(manifest["iot_class"], "local_polling")
@@ -51,7 +51,7 @@ class RepositoryContractTest(unittest.TestCase):
         self.assertEqual(
             hacs,
             {
-                "name": "Hakera",
+                "name": "HAkera",
                 "render_readme": True,
                 "homeassistant": "2026.8.3",
             },
@@ -100,7 +100,7 @@ class RepositoryContractTest(unittest.TestCase):
 
     def test_pyproject_is_valid_toml(self) -> None:
         data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-        self.assertEqual(data["project"]["name"], "home-assistant-hakera")
+        self.assertEqual(data["project"]["name"], "hakera")
         self.assertEqual(data["project"]["requires-python"], ">=3.14.2")
 
     def test_runtime_command_allowlist_is_constrained(self) -> None:

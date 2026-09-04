@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.4
+
+- Stylizes the public integration name as `HAkera` and updates repository links
+  after the GitHub repository was renamed to `mattriney/HAkera`.
+
 ## 0.4.3
 
 - Normalizes the firmware's compound model response to `Z1` for Home Assistant
