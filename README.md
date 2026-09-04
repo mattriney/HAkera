@@ -8,7 +8,12 @@ HAkera is a Home Assistant custom integration for monitoring Makera Z1 CNC
 machines and controlling non-motion accessories over the local network. It
 supports the Z1 product family and was developed and tested on a Z1 Pro.
 
-> [!IMPORTANT]
+> [!CAUTION]
+> HAkera is provided as-is and is not a safety system. Camera feeds, telemetry,
+> network connections, and automations may fail, be delayed, or report stale
+> information. You are responsible for operating the machine safely and
+> following the manufacturer's guidance. Use HAkera at your own risk.
+>
 > HAkera does not expose motion, spindle-motor, tool-change, probing, file,
 > G-code, or job controls. Home Assistant automations can run without an
 > operator present, so machine control remains deliberately out of scope.
