@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0
 
 - Adds automation-focused machine activity, controller-clear, spindle-speed,
   camera-streaming, and controller-event visibility.
