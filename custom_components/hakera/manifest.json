@@ -9,5 +9,5 @@
   "issue_tracker": "https://github.com/mattriney/HAkera/issues",
   "loggers": ["custom_components.hakera"],
   "requirements": [],
-  "version": "0.4.4"
+  "version": "0.5.0"
 }
