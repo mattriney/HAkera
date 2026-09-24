@@ -77,7 +77,8 @@ Then add HAkera from `Settings -> Devices & services`.
 
 Powered outputs accept percentages in 5% steps. Their entities continue to show
 the controller's reported value when firmware-controlled cooling overrides a
-manual command.
+manual command. A service call reports an error if the controller does not
+confirm the requested percentage.
 
 ## Camera
 
