@@ -24,7 +24,14 @@ PACKET_TYPE_REALTIME: Final = 0xA1
 PACKET_TYPE_COMMAND: Final = 0xA2
 REALTIME_STATUS: Final = 0x3F
 
-IDENTITY_COMMANDS: Final = ("sn-get", "model", "version", "ftype")
+IDENTITY_COMMAND_FIELDS: Final = (
+    ("sn-get", "serial"),
+    ("model", "model"),
+    ("version", "firmware_version"),
+    ("ftype", "filesystem_type"),
+)
+IDENTITY_COMMANDS: Final = tuple(command for command, _ in IDENTITY_COMMAND_FIELDS)
+IDENTITY_RETRY_INTERVAL: Final = 60.0
 POLL_COMMANDS: Final = ("diagnose", "M957")
 WORK_LIGHT_COMMANDS: Final = {False: "M822", True: "M821"}
 
@@ -431,6 +438,7 @@ class MakeraZ1Client:
         self.response_timeout = response_timeout
         self.camera_timeout = camera_timeout
         self._identity = ControllerIdentity()
+        self._identity_retry_after = 0.0
         self._spindle_report = SpindleReport()
         self._active_alert: ControllerAlert | None = None
         self._control_lock = asyncio.Lock()
@@ -453,8 +461,21 @@ class MakeraZ1Client:
         include_identity: bool | None = None,
     ) -> MakeraZ1Snapshot:
         """Fetch one snapshot while the control lock is held."""
+        loop = asyncio.get_running_loop()
         if include_identity is None:
-            include_identity = self._identity.serial is None
+            identity_requests = (
+                tuple(
+                    (command, field)
+                    for command, field in IDENTITY_COMMAND_FIELDS
+                    if getattr(self._identity, field) is None
+                )
+                if loop.time() >= self._identity_retry_after
+                else ()
+            )
+        elif include_identity:
+            identity_requests = IDENTITY_COMMAND_FIELDS
+        else:
+            identity_requests = ()
 
         packets = [
             build_control_packet(PACKET_TYPE_REALTIME, bytes([REALTIME_STATUS])),
@@ -463,10 +484,10 @@ class MakeraZ1Client:
                 for command in POLL_COMMANDS
             ),
         ]
-        if include_identity:
+        if identity_requests:
             packets.extend(
                 build_control_packet(PACKET_TYPE_COMMAND, sanitize_command(command))
-                for command in IDENTITY_COMMANDS
+                for command, _ in identity_requests
             )
 
         packet_parser = ControlPacketParser()
@@ -489,7 +510,6 @@ class MakeraZ1Client:
                 writer.write(packet)
             await writer.drain()
 
-            loop = asyncio.get_running_loop()
             deadline = loop.time() + self.response_timeout
             while loop.time() < deadline:
                 timeout = max(0.05, deadline - loop.time())
@@ -540,7 +560,10 @@ class MakeraZ1Client:
                 if (
                     status
                     and diagnostic
-                    and (not include_identity or identity.serial)
+                    and all(
+                        getattr(identity, field) is not None
+                        for _, field in identity_requests
+                    )
                     and _spindle_has_data(spindle_report)
                 ):
                     break
@@ -563,6 +586,8 @@ class MakeraZ1Client:
             )
 
         self._identity = identity
+        if identity_requests:
+            self._identity_retry_after = loop.time() + IDENTITY_RETRY_INTERVAL
         self._spindle_report = spindle_report
         controller_is_alarmed = status.state.lower().startswith(("alarm", "halt"))
         status_alert = (
@@ -629,15 +654,18 @@ class MakeraZ1Client:
         definition = OUTPUT_CONTROLS.get(output_id)
         if definition is None:
             raise ValueError("Unsupported Z1 output control.")
-        command, _ = build_output_command(definition, enabled, power)
+        command, expected_power = build_output_command(definition, enabled, power)
         async with self._control_lock:
-            return await self._async_set_output(command, definition, enabled)
+            return await self._async_set_output(
+                command, definition, enabled, expected_power
+            )
 
     async def _async_set_output(
         self,
         command: str,
         definition: OutputControl,
         expected: bool,
+        expected_power: int | None,
     ) -> DiagnosticStatus:
         """Send a fixed output command and verify its diagnostic state."""
         packet = build_control_packet(PACKET_TYPE_COMMAND, sanitize_command(command))
@@ -668,10 +696,25 @@ class MakeraZ1Client:
             fields = map_diagnostic_fields(diagnostic)
             actual = diagnostic_switch_is_active(fields.get(definition.state_field))
             if actual is expected:
-                return diagnostic
+                if expected_power is None:
+                    return diagnostic
+                power_field = fields.get(definition.power_field or "")
+                if (
+                    power_field is not None
+                    and power_field.value is not None
+                    and math.isclose(
+                        power_field.value, expected_power, rel_tol=0, abs_tol=0.5
+                    )
+                ):
+                    return diagnostic
 
+        expectation = (
+            f"{definition.label} state"
+            if expected_power is None
+            else f"{definition.label} state and {expected_power}% power"
+        )
         raise MakeraZ1ResponseError(
-            f"The controller did not confirm the requested {definition.label} state."
+            f"The controller did not confirm the requested {expectation}."
         )
 
     async def _async_fetch_diagnostic(self) -> DiagnosticStatus:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from dataclasses import replace
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from homeassistant.components import camera
@@ -20,6 +21,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.hakera.camera import MakeraZ1Camera
@@ -28,6 +30,7 @@ from custom_components.hakera.diagnostics import (
     async_get_config_entry_diagnostics,
 )
 from custom_components.hakera.z1 import (
+    MakeraZ1ConnectionError,
     MakeraZ1Snapshot,
     parse_diagnostic_packet,
 )
@@ -178,8 +181,13 @@ async def test_soft_limit_status_updates_and_clears(
     soft_limit_snapshot: MakeraZ1Snapshot,
 ) -> None:
     """Test an H:10 alarm through coordinator-backed HA entities."""
+    assert soft_limit_snapshot.alert is not None
+    detailed_snapshot = replace(
+        soft_limit_snapshot,
+        alert=replace(soft_limit_snapshot.alert, axis="X"),
+    )
     entry, fetch = await _async_setup_entry(
-        hass, [idle_snapshot, soft_limit_snapshot, idle_snapshot]
+        hass, [idle_snapshot, soft_limit_snapshot, detailed_snapshot, idle_snapshot]
     )
     coordinator = entry.runtime_data.coordinator
     soft_limit_id = _entity_id(hass, "binary_sensor", f"{SERIAL}_soft_limit_alarm")
@@ -209,12 +217,20 @@ async def test_soft_limit_status_updates_and_clears(
     with patch("custom_components.hakera.MakeraZ1Client.async_fetch_snapshot", fetch):
         await coordinator.async_refresh()
 
+    enriched_event = _state(hass, event_id)
+    assert enriched_event.attributes["event_type"] == "soft_limit"
+    assert enriched_event.attributes["axis"] == "X"
+
+    with patch("custom_components.hakera.MakeraZ1Client.async_fetch_snapshot", fetch):
+        await coordinator.async_refresh()
+
     assert _state(hass, soft_limit_id).state == STATE_OFF
     assert _state(hass, reason_id).state == "unknown"
     cleared_event = _state(hass, event_id)
     assert cleared_event.attributes["event_type"] == "alarm_cleared"
     assert cleared_event.attributes["alarm_type"] == "soft_limit"
     assert cleared_event.attributes["code"] == 10
+    assert cleared_event.attributes["axis"] == "X"
 
 
 async def test_accessory_services_use_feedback(
@@ -349,6 +365,7 @@ async def test_diagnostics_redact_device_identity(
 
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
 
+    assert diagnostics["entry"]["title"] == REDACTED
     assert diagnostics["entry"]["unique_id"] == REDACTED
     assert diagnostics["entry"]["data"][CONF_HOST] == REDACTED
     assert diagnostics["snapshot"]["identity"]["serial"] == REDACTED
@@ -356,3 +373,22 @@ async def test_diagnostics_redact_device_identity(
     serialized = json.dumps(diagnostics)
     assert HOST not in serialized
     assert SERIAL not in serialized
+    assert TITLE[-6:] not in serialized
+
+
+async def test_diagnostics_redact_connection_error(
+    hass: HomeAssistant,
+    idle_snapshot: MakeraZ1Snapshot,
+) -> None:
+    """Preserve error types without exporting an address embedded in text."""
+    entry, _ = await _async_setup_entry(hass, idle_snapshot)
+    cause = MakeraZ1ConnectionError(f"Could not connect to {HOST}:2222.")
+    error = UpdateFailed(str(cause))
+    error.__cause__ = cause
+    entry.runtime_data.coordinator.last_exception = error
+
+    diagnostics = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert diagnostics["last_exception"] == "UpdateFailed"
+    assert diagnostics["last_exception_cause"] == "MakeraZ1ConnectionError"
+    assert HOST not in json.dumps(diagnostics)

@@ -49,7 +49,8 @@ The only TCP writes outside polling are fixed allowlisted accessory commands:
 
 Power values are numeric, range checked, and restricted to 5% steps. Arbitrary
 command text cannot enter the command builder. Each action sends `diagnose` and
-requires the corresponding firmware state field before it reports success.
+requires the corresponding firmware state and requested power, when applicable,
+before it reports success.
 
 ## Polling model
 
@@ -57,6 +58,10 @@ Each coordinator refresh opens a short TCP connection, sends the read-only query
 batch, parses returned packets, and closes the connection. This avoids holding a
 machine-control channel open indefinitely from Home Assistant. Output actions and
 polls share a lock so their short TCP sessions cannot overlap.
+
+The client waits for all requested identity replies. Missing identity fields are
+retried at most once a minute, so a split or incomplete first response does not
+permanently hide firmware metadata.
 
 ## Camera model
 

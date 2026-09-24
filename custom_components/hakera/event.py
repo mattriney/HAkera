@@ -50,7 +50,13 @@ class MakeraZ1ControllerEvent(MakeraZ1Entity, EventEntity):
         """Publish newly raised and cleared controller alerts."""
         alert = self.coordinator.data.alert if self.coordinator.data else None
         previous = self._previous_alert
-        if alert is not None and (previous is None or alert.kind != previous.kind):
+        if alert is not None and (
+            previous is None
+            or alert.kind != previous.kind
+            or alert.code != previous.code
+            or alert.axis != previous.axis
+            or alert.direction != previous.direction
+        ):
             self._trigger_event(alert.kind, _event_data(alert))
         elif alert is None and previous is not None:
             self._trigger_event("alarm_cleared", _event_data(previous))

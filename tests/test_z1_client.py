@@ -22,6 +22,7 @@ from z1 import (  # noqa: E402
     MakeraZ1ConnectionError,
     MakeraZ1ResponseError,
     build_control_packet,
+    parse_diagnostic_packet,
 )
 
 
@@ -272,7 +273,12 @@ class MakeraZ1ClientTest(unittest.IsolatedAsyncioTestCase):
         writer.drain = AsyncMock()
         writer.wait_closed = AsyncMock()
         client = MakeraZ1Client("127.0.0.1")
-        client._identity = ControllerIdentity(serial="Z1P000000X000001")
+        client._identity = ControllerIdentity(
+            serial="Z1P000000X000001",
+            model="Z1",
+            firmware_version="1.1.2.0.1.13",
+            filesystem_type="nc",
+        )
 
         with patch(
             "z1.asyncio.open_connection",
@@ -288,6 +294,61 @@ class MakeraZ1ClientTest(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertEqual(commands, ["diagnose", "M957"])
         self.assertEqual(snapshot.identity.serial, "Z1P000000X000001")
+
+    async def test_split_identity_replies_are_retained(self) -> None:
+        first = _snapshot_response(line="sn = Z1P000000X000001")
+        later = b"".join(
+            (
+                build_control_packet(0x83, b"model = Z1\n"),
+                build_control_packet(0x83, b"version = 1.1.2.0.1.13\n"),
+                build_control_packet(0x83, b"ftype = nc\n"),
+            )
+        )
+        reader = AsyncMock()
+        reader.read = AsyncMock(side_effect=[first, later])
+        writer = MagicMock()
+        writer.drain = AsyncMock()
+        writer.wait_closed = AsyncMock()
+        client = MakeraZ1Client("127.0.0.1")
+
+        with patch(
+            "z1.asyncio.open_connection",
+            AsyncMock(return_value=(reader, writer)),
+        ):
+            snapshot = await client.async_fetch_snapshot(include_identity=True)
+
+        self.assertEqual(reader.read.await_count, 2)
+        self.assertEqual(snapshot.identity.model, "Z1")
+        self.assertEqual(snapshot.identity.firmware_version, "1.1.2.0.1.13")
+        self.assertEqual(snapshot.identity.filesystem_type, "nc")
+
+    async def test_missing_identity_retries_only_missing_fields(self) -> None:
+        reader = AsyncMock()
+        reader.read = AsyncMock(
+            side_effect=[_snapshot_response(), b"", _snapshot_response()]
+        )
+        writer = MagicMock()
+        writer.drain = AsyncMock()
+        writer.wait_closed = AsyncMock()
+        client = MakeraZ1Client("127.0.0.1", response_timeout=0.05)
+        client._identity = ControllerIdentity(serial="Z1P000000X000001", model="Z1")
+
+        with patch(
+            "z1.asyncio.open_connection",
+            AsyncMock(return_value=(reader, writer)),
+        ):
+            await client.async_fetch_snapshot()
+            await client.async_fetch_snapshot()
+
+        sent = b"".join(call.args[0] for call in writer.write.call_args_list)
+        commands = [
+            message.payload.decode("ascii")
+            for message in ControlPacketParser().push(sent)
+            if message.packet_type == 0xA2
+        ]
+        self.assertEqual(
+            commands, ["diagnose", "M957", "version", "ftype", "diagnose", "M957"]
+        )
 
     async def test_snapshot_reports_connection_and_protocol_failures(self) -> None:
         client = MakeraZ1Client("127.0.0.1")
@@ -422,6 +483,25 @@ class MakeraZ1ClientTest(unittest.IsolatedAsyncioTestCase):
         finally:
             server.close()
             await server.wait_closed()
+
+    async def test_set_output_rejects_unconfirmed_power(self) -> None:
+        writer = MagicMock()
+        writer.drain = AsyncMock()
+        writer.wait_closed = AsyncMock()
+        client = MakeraZ1Client("127.0.0.1")
+        client._async_fetch_diagnostic = AsyncMock(
+            return_value=parse_diagnostic_packet("{V:1,20}")
+        )
+
+        with (
+            patch(
+                "z1.asyncio.open_connection",
+                AsyncMock(return_value=(MagicMock(), writer)),
+            ),
+            patch("z1.asyncio.sleep", AsyncMock()),
+            self.assertRaisesRegex(MakeraZ1ResponseError, "35% power"),
+        ):
+            await client.async_set_output("power_fan", True, 35)
 
     async def test_output_validation_and_connection_failures(self) -> None:
         client = MakeraZ1Client("127.0.0.1")

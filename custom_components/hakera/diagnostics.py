@@ -16,6 +16,7 @@ TO_REDACT = {
     "host",
     "serial",
     "serial_number",
+    "title",
     "unique_id",
 }
 
@@ -27,6 +28,7 @@ async def async_get_config_entry_diagnostics(
     """Return diagnostics for a config entry."""
     coordinator = entry.runtime_data.coordinator
     snapshot = coordinator.data
+    last_exception = coordinator.last_exception
 
     data: dict[str, Any] = {
         "entry": {
@@ -36,8 +38,9 @@ async def async_get_config_entry_diagnostics(
             "options": dict(entry.options),
         },
         "last_update_success": coordinator.last_update_success,
-        "last_exception": str(coordinator.last_exception)
-        if coordinator.last_exception
+        "last_exception": type(last_exception).__name__ if last_exception else None,
+        "last_exception_cause": type(last_exception.__cause__).__name__
+        if last_exception and last_exception.__cause__
         else None,
         "snapshot": snapshot.as_diagnostics() if snapshot else None,
     }

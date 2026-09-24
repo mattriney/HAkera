@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Retains split identity replies, verifies accessory power feedback, redacts
+  connection errors in diagnostics, and updates enriched controller events.
+
 ## 0.5.0
 
 - Adds automation-focused machine activity, controller-clear, spindle-speed,
