@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.5.1
+
 - Retains split identity replies, verifies accessory power feedback, redacts
   connection errors in diagnostics, and updates enriched controller events.
 
