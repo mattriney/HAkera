@@ -2,8 +2,11 @@
 
 ## Unreleased
 
+## 0.5.2
+
 - Handles invalid or missing controller responses as polling failures, avoiding
   repeated unexpected-error tracebacks while allowing automatic recovery.
+- Publishes validated version bumps automatically after merging into `main`.
 
 ## 0.5.1
 

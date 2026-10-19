@@ -45,6 +45,10 @@ Before publishing a release:
 ## Creating a release
 
 Keep the version in `manifest.json`, `pyproject.toml`, and `CHANGELOG.md` in
-sync. Push a matching `vX.Y.Z` tag only after `main` is green. The release
-workflow reruns all validation jobs, verifies those three version declarations,
-and creates the GitHub release only if every check passes.
+sync in a release PR. When the manifest change merges into `main`, the release
+workflow runs all validation jobs, verifies those three version declarations,
+and creates the matching `vX.Y.Z` tag and GitHub release only if every check
+passes. Existing releases are skipped on reruns.
+
+Pushing a matching `vX.Y.Z` tag still runs the same release checks. An existing
+tag must point to the validated commit before a version-bump run can publish it.
