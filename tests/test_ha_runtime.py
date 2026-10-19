@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Sequence
 from dataclasses import replace
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
+import pytest
 from homeassistant.components import camera
 from homeassistant.components.diagnostics import REDACTED
 from homeassistant.components.fan import ATTR_PERCENTAGE, SERVICE_SET_PERCENTAGE
@@ -18,6 +20,7 @@ from homeassistant.const import (
     SERVICE_TURN_OFF,
     STATE_OFF,
     STATE_ON,
+    STATE_UNAVAILABLE,
 )
 from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers import entity_registry as er
@@ -31,6 +34,7 @@ from custom_components.hakera.diagnostics import (
 )
 from custom_components.hakera.z1 import (
     MakeraZ1ConnectionError,
+    MakeraZ1ResponseError,
     MakeraZ1Snapshot,
     parse_diagnostic_packet,
 )
@@ -231,6 +235,50 @@ async def test_soft_limit_status_updates_and_clears(
     assert cleared_event.attributes["alarm_type"] == "soft_limit"
     assert cleared_event.attributes["code"] == 10
     assert cleared_event.attributes["axis"] == "X"
+
+
+@pytest.mark.parametrize("message", ["CRC mismatch", "No status packet received"])
+async def test_poll_response_errors_log_once_and_recover(
+    hass: HomeAssistant,
+    idle_snapshot: MakeraZ1Snapshot,
+    caplog: pytest.LogCaptureFixture,
+    message: str,
+) -> None:
+    """Treat invalid responses as recoverable failures without traceback spam."""
+    entry, fetch = await _async_setup_entry(hass, idle_snapshot)
+    coordinator = entry.runtime_data.coordinator
+    state_id = _entity_id(hass, "sensor", f"{SERIAL}_machine_state")
+    connected_id = _entity_id(hass, "binary_sensor", f"{SERIAL}_connected")
+    caplog.set_level(logging.ERROR, logger="custom_components.hakera.coordinator")
+    caplog.clear()
+    fetch.side_effect = MakeraZ1ResponseError(message)
+
+    with patch("custom_components.hakera.MakeraZ1Client.async_fetch_snapshot", fetch):
+        for _ in range(2):
+            await coordinator.async_refresh()
+            await hass.async_block_till_done()
+            assert not coordinator.last_update_success
+            assert isinstance(coordinator.last_exception, UpdateFailed)
+            assert _state(hass, state_id).state == STATE_UNAVAILABLE
+            assert _state(hass, connected_id).state == STATE_OFF
+
+        failures = [
+            record
+            for record in caplog.records
+            if record.name == "custom_components.hakera.coordinator"
+            and record.levelno >= logging.ERROR
+        ]
+        assert len(failures) == 1
+        assert message in failures[0].getMessage()
+        assert failures[0].exc_info is None
+
+        fetch.side_effect = None
+        await coordinator.async_refresh()
+        await hass.async_block_till_done()
+
+    assert coordinator.last_update_success
+    assert _state(hass, state_id).state == "Idle"
+    assert _state(hass, connected_id).state == STATE_ON
 
 
 async def test_accessory_services_use_feedback(
