@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST
 from homeassistant.core import HomeAssistant
@@ -12,6 +11,12 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import DOMAIN
 from .z1 import MakeraZ1Client, MakeraZ1ConnectionError, MakeraZ1Error
+
+if TYPE_CHECKING:
+    import probatio as vol
+else:
+    # Newer HA aliases voluptuous to Probatio; older HA still uses voluptuous.
+    import voluptuous as vol
 
 
 class MakeraZ1ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
