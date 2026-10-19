@@ -61,3 +61,26 @@ jobs:
           --cov=custom_components.hakera
           --cov-report=term-missing
           --cov-fail-under=95
+
+  tests-minimum:
+    name: Tests (minimum Home Assistant)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements_test_minimum.txt
+      - run: python -m pip install -r requirements_test_minimum.txt
+      - name: Verify minimum Home Assistant target
+        run: >-
+          python -c "import json; from importlib.metadata import version;
+          from pathlib import Path;
+          assert version('homeassistant') ==
+          json.loads(Path('hacs.json').read_text())['homeassistant']"
+      - run: >-
+          python -m pytest
+          --cov=custom_components.hakera
+          --cov-report=term-missing
+          --cov-fail-under=95

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 from contextlib import suppress
+from typing import TYPE_CHECKING
 
 from aiohttp import web
-from homeassistant.components.camera import Camera, CameraEntityFeature
+from homeassistant.components.camera import Camera
 from homeassistant.const import CONTENT_TYPE_MULTIPART
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -18,6 +19,11 @@ from .z1 import (
     MakeraZ1ConnectionError,
     MakeraZ1ResponseError,
 )
+
+if TYPE_CHECKING:
+    from homeassistant.components.camera.const import CameraEntityFeature
+else:
+    from homeassistant.components.camera import CameraEntityFeature
 
 _LOGGER = logging.getLogger(__name__)
 _MJPEG_BOUNDARY = "--frameboundary"

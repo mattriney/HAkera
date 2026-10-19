@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.fan import (
     FanEntity,
     FanEntityDescription,
-    FanEntityFeature,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
@@ -19,6 +18,11 @@ from . import MakeraZ1ConfigEntry
 from .const import DOMAIN
 from .entity import MakeraZ1Entity
 from .z1 import MakeraZ1Error, diagnostic_switch_is_active
+
+if TYPE_CHECKING:
+    from homeassistant.components.fan.const import FanEntityFeature
+else:
+    from homeassistant.components.fan import FanEntityFeature
 
 PARALLEL_UPDATES = 1
 POWER_STEP = 5

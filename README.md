@@ -26,6 +26,8 @@ Live tested with:
 - Z1 firmware `1.1.2.0.1.13`
 - Home Assistant `2026.8.3`
 
+Automated integration tests cover Home Assistant `2026.8.3` and `2026.10.2`.
+
 Other Z1 models and firmware versions may work but have not yet been verified.
 
 ## Features

@@ -11,16 +11,22 @@ near Home Assistant.
 
 ## Local checks
 
-Install the pinned test dependencies and run the same checks as CI:
+Use Python 3.14 on Linux (including WSL); current Home Assistant test dependencies
+include Linux-only modules. Install the pinned dependencies and run the CI checks:
 
-```powershell
+```bash
 python -m pip install -r requirements_test.txt
 python -m compileall -q custom_components tests tools
 python -m ruff check .
 python -m ruff format --check .
-python -m pyright --pythonpath (python -c "import sys; print(sys.executable)")
+python -m pyright --pythonpath "$(which python)"
 python -m pytest --cov=custom_components.hakera --cov-report=term-missing --cov-fail-under=95
 ```
+
+The pinned framework tests Home Assistant `2026.10.2`. Type checking targets that
+version's public types. CI also runs the full runtime suite against the minimum
+supported Home Assistant `2026.8.3`, using `requirements_test_minimum.txt` in a
+separate environment. Keep both runtime checks passing when updating dependencies.
 
 ## Firmware updates
 

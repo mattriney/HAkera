@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.5.3
+
+- Supports Home Assistant `2026.10.2` validation and entity types while retaining
+  compatibility with the minimum supported `2026.8.3` runtime.
+- Tests both supported runtimes in CI and updates the test framework, Pyright,
+  and Ruff.
+
 ## 0.5.2
 
 - Handles invalid or missing controller responses as polling failures, avoiding

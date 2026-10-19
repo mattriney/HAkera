@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.binary_sensor import (
-    BinarySensorDeviceClass,
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
@@ -26,6 +25,11 @@ from .z1 import (
     snapshot_spindle_running,
     snapshot_spindle_speed_deviation,
 )
+
+if TYPE_CHECKING:
+    from homeassistant.components.binary_sensor.const import BinarySensorDeviceClass
+else:
+    from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 
 
 @dataclass(frozen=True, kw_only=True)

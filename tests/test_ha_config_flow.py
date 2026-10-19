@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST
 from homeassistant.core import HomeAssistant
@@ -28,6 +29,13 @@ async def test_user_flow_creates_unique_config_entry(hass: HomeAssistant) -> Non
     )
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "user"
+
+    schema = result["data_schema"]
+    assert schema({CONF_HOST: HOST}) == {CONF_HOST: HOST}
+    with pytest.raises(vol.Invalid):
+        schema({})
+    with pytest.raises(vol.Invalid):
+        schema({CONF_HOST: 123})
 
     setup_entry = AsyncMock(return_value=True)
     with (
