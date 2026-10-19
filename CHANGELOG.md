@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Handles invalid or missing controller responses as polling failures, avoiding
+  repeated unexpected-error tracebacks while allowing automatic recovery.
+
 ## 0.5.1
 
 - Retains split identity replies, verifies accessory power feedback, redacts

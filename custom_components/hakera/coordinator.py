@@ -14,7 +14,7 @@ from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
 from .z1 import (
     DiagnosticStatus,
     MakeraZ1Client,
-    MakeraZ1ConnectionError,
+    MakeraZ1Error,
     MakeraZ1Snapshot,
     map_diagnostic_fields,
 )
@@ -67,7 +67,7 @@ class MakeraZ1Coordinator(DataUpdateCoordinator[MakeraZ1Snapshot]):
         try:
             async with asyncio.timeout(5):
                 return await self.client.async_fetch_snapshot()
-        except MakeraZ1ConnectionError as err:
+        except MakeraZ1Error as err:
             raise UpdateFailed(str(err)) from err
 
     @callback

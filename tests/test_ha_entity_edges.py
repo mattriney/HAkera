@@ -42,6 +42,7 @@ from custom_components.hakera.z1 import (
     DiagnosticField,
     MakeraZ1CameraBusyError,
     MakeraZ1ConnectionError,
+    MakeraZ1Error,
     MakeraZ1ResponseError,
     SpindleReport,
     parse_diagnostic_packet,
@@ -322,21 +323,31 @@ def test_sensor_missing_data_and_alarm_attributes(coordinator, idle_snapshot) ->
     }
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        MakeraZ1Error("controller error"),
+        MakeraZ1ConnectionError("offline"),
+        MakeraZ1ResponseError("CRC mismatch"),
+        MakeraZ1ResponseError("No status packet received"),
+    ],
+)
 @pytest.mark.asyncio
 async def test_coordinator_fallback_error_and_empty_diagnostic(
     coordinator,
+    error,
 ) -> None:
-    """Test fallback identity, connection errors, and pre-data feedback."""
+    """Test fallback identity, controller errors, and pre-data feedback."""
     coordinator.data = None
     assert coordinator.device_identifier == SERIAL
     coordinator.async_apply_diagnostic(parse_diagnostic_packet("{F:1,20}"))
     assert coordinator.data is None
 
-    coordinator.client.async_fetch_snapshot = AsyncMock(
-        side_effect=MakeraZ1ConnectionError("offline")
-    )
-    with pytest.raises(UpdateFailed, match="offline"):
+    coordinator.client.async_fetch_snapshot = AsyncMock(side_effect=error)
+    with pytest.raises(UpdateFailed) as raised:
         await coordinator._async_update_data()
+    assert str(raised.value) == str(error)
+    assert raised.value.__cause__ is error
 
 
 @pytest.mark.parametrize(
