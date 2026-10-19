@@ -2,8 +2,16 @@ name: Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
+    paths:
+      - "custom_components/hakera/manifest.json"
+
+concurrency:
+  group: hakera-release
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -22,12 +30,38 @@ jobs:
         with:
           python-version: "3.14"
       - name: Verify tag and repository versions
-        run: python tools/check_release.py "$GITHUB_REF_NAME"
+        id: release
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="v$(python -c 'import json; from pathlib import Path; print(json.loads(Path("custom_components/hakera/manifest.json").read_text())["version"])')"
+          fi
+          python tools/check_release.py "$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >-
-          gh release create "$GITHUB_REF_NAME"
-          --title "HAkera ${GITHUB_REF_NAME#v}"
-          --generate-notes
-          --verify-tag
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "$RELEASE_TAG already has a release."
+            exit 0
+          fi
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha 2>/dev/null || true)"
+            if [ -n "$tag_sha" ]; then
+              if [ "$tag_sha" != "$GITHUB_SHA" ]; then
+                echo "::error::Existing tag $RELEASE_TAG points to a different commit."
+                exit 1
+              fi
+            else
+              gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+                -f ref="refs/tags/$RELEASE_TAG" -f sha="$GITHUB_SHA" >/dev/null
+            fi
+          fi
+          gh release create "$RELEASE_TAG" \
+            --title "HAkera ${RELEASE_TAG#v}" \
+            --generate-notes \
+            --verify-tag
