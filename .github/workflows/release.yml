@@ -8,6 +8,7 @@ on:
       - "v*"
     paths:
       - "custom_components/hakera/manifest.json"
+      - ".github/workflows/release.yml"
 
 concurrency:
   group: hakera-release
@@ -50,8 +51,7 @@ jobs:
             exit 0
           fi
           if [ "$GITHUB_REF_TYPE" != "tag" ]; then
-            tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha 2>/dev/null || true)"
-            if [ -n "$tag_sha" ]; then
+            if tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha 2>/dev/null)"; then
               if [ "$tag_sha" != "$GITHUB_SHA" ]; then
                 echo "::error::Existing tag $RELEASE_TAG points to a different commit."
                 exit 1
