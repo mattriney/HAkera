@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.5.4
+
+- Fixes the README logo in HACS by using an absolute image URL.
+- Adds a regression check for the HACS-compatible logo link.
+
 ## 0.5.3
 
 - Supports Home Assistant `2026.10.2` validation and entity types while retaining

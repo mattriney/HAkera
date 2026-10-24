@@ -1,7 +1,7 @@
 # HAkera
 
 <p align="center">
-  <img src="custom_components/hakera/brand/icon@2x.png" alt="HAkera" width="180">
+  <img src="https://raw.githubusercontent.com/mattriney/HAkera/main/custom_components/hakera/brand/icon@2x.png" alt="HAkera" width="180">
 </p>
 
 HAkera is a Home Assistant custom integration for monitoring Makera Z1 CNC
