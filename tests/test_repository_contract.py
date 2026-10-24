@@ -8,6 +8,7 @@ import struct
 import sys
 import tomllib
 import unittest
+from html.parser import HTMLParser
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 COMPONENT_ROOT = ROOT / "custom_components"
@@ -20,6 +21,18 @@ from z1 import (  # noqa: E402
     POLL_COMMANDS,
     REALTIME_STATUS,
 )
+
+
+class ReadmeImageParser(HTMLParser):
+    """Collect image sources without depending on HTML attribute formatting."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.sources: list[str | None] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "img":
+            self.sources.append(dict(attrs).get("src"))
 
 
 class RepositoryContractTest(unittest.TestCase):
@@ -68,6 +81,16 @@ class RepositoryContractTest(unittest.TestCase):
                     struct.unpack(">II", data[16:24]), (expected_size,) * 2
                 )
                 self.assertIn(data[25], {4, 6}, "brand icon must retain transparency")
+
+    def test_readme_logo_uses_an_absolute_url_for_hacs(self) -> None:
+        parser = ReadmeImageParser()
+        parser.feed((ROOT / "README.md").read_text(encoding="utf-8"))
+        self.assertIn(
+            "https://raw.githubusercontent.com/mattriney/HAkera/main/"
+            "custom_components/hakera/brand/icon@2x.png",
+            parser.sources,
+        )
+        self.assertTrue((COMPONENT / "brand" / "icon@2x.png").is_file())
 
     def test_json_files_are_valid(self) -> None:
         json_files = [
