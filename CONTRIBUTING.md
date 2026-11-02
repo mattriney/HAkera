@@ -23,10 +23,16 @@ python -m pyright --pythonpath "$(which python)"
 python -m pytest --cov=custom_components.hakera --cov-report=term-missing --cov-fail-under=95
 ```
 
-The pinned framework tests Home Assistant `2026.10.2`. Type checking targets that
+The pinned framework tests Home Assistant `2026.10.4`. Type checking targets that
 version's public types. CI also runs the full runtime suite against the minimum
 supported Home Assistant `2026.8.3`, using `requirements_test_minimum.txt` in a
 separate environment. Keep both runtime checks passing when updating dependencies.
+
+Dependabot excludes the minimum-version requirements file; update that baseline
+deliberately when changing the supported minimum. Keep PyTurboJPEG aligned with
+Home Assistant's camera requirement; CI checks the installed decoder version.
+The Ruff action reads its version from `requirements_test.txt`, matching local
+checks.
 
 ## Firmware updates
 

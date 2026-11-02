@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Updates the camera-resolution selector immediately when a new frame size is
+  observed, even while controller telemetry is unchanged.
+- Validates Home Assistant `2026.10.4` while preserving the `2026.8.3` baseline.
+- Protects the minimum-version dependency pins, aligns camera decoder tests with
+  Home Assistant, and runs CI with the pinned Ruff version.
+
 ## 0.5.4
 
 - Fixes the README logo in HACS by using an absolute image URL.

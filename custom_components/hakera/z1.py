@@ -10,7 +10,7 @@ import asyncio
 import ipaddress
 import math
 import re
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from contextlib import suppress
 from dataclasses import dataclass, replace
 from typing import Any, Final
@@ -444,6 +444,7 @@ class MakeraZ1Client:
         self._control_lock = asyncio.Lock()
         self._camera_setting_lock = asyncio.Lock()
         self._camera_resolution: CameraResolution | None = None
+        self._camera_resolution_listeners: set[Callable[[], None]] = set()
         self._camera_broker = _CameraStreamBroker(self)
 
     async def async_fetch_snapshot(
@@ -640,6 +641,25 @@ class MakeraZ1Client:
         """Return the observed or most recently selected camera resolution."""
         return self._camera_resolution.option if self._camera_resolution else None
 
+    def add_camera_resolution_listener(
+        self, listener: Callable[[], None]
+    ) -> Callable[[], None]:
+        """Subscribe to resolution changes on the event loop; return cleanup."""
+        self._camera_resolution_listeners.add(listener)
+
+        def remove_listener() -> None:
+            self._camera_resolution_listeners.discard(listener)
+
+        return remove_listener
+
+    def _update_camera_resolution(self, resolution: CameraResolution | None) -> None:
+        """Notify subscribers only when the observed frame size changes."""
+        if resolution == self._camera_resolution:
+            return
+        self._camera_resolution = resolution
+        for listener in tuple(self._camera_resolution_listeners):
+            listener()
+
     async def async_set_work_light(self, enabled: bool) -> DiagnosticStatus:
         """Set the work light and require matching diagnostic feedback."""
         return await self.async_set_output("work_light", enabled)
@@ -799,12 +819,12 @@ class MakeraZ1Client:
                         resolution.width,
                         resolution.height,
                     ):
-                        self._camera_resolution = resolution
+                        self._update_camera_resolution(resolution)
                         return
 
                     await self._async_post_camera_resolution(resolution)
                     if await self._async_wait_for_camera_resolution(frames, resolution):
-                        self._camera_resolution = resolution
+                        self._update_camera_resolution(resolution)
                         return
                 except (StopAsyncIteration, TimeoutError):
                     pass
@@ -873,13 +893,15 @@ class MakeraZ1Client:
         dimensions = jpeg_dimensions(frame)
         if dimensions is None:
             return
-        self._camera_resolution = next(
-            (
-                resolution
-                for resolution in CAMERA_RESOLUTIONS
-                if (resolution.width, resolution.height) == dimensions
-            ),
-            None,
+        self._update_camera_resolution(
+            next(
+                (
+                    resolution
+                    for resolution in CAMERA_RESOLUTIONS
+                    if (resolution.width, resolution.height) == dimensions
+                ),
+                None,
+            )
         )
 
     async def async_get_camera_image(self) -> bytes:
@@ -901,6 +923,7 @@ class MakeraZ1Client:
     async def async_close(self) -> None:
         """Close any persistent resources."""
         await self._camera_broker.async_close()
+        self._camera_resolution_listeners.clear()
 
 
 class _CameraStreamBroker:

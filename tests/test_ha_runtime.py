@@ -21,6 +21,7 @@ from homeassistant.const import (
     STATE_OFF,
     STATE_ON,
     STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
 )
 from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers import entity_registry as er
@@ -346,6 +347,49 @@ async def test_camera_still_and_resolution_services(
         blocking=True,
     )
     client.async_set_camera_resolution.assert_awaited_once_with(10)
+
+
+async def test_camera_resolution_feedback_updates_while_idle(
+    hass: HomeAssistant,
+    idle_snapshot: MakeraZ1Snapshot,
+) -> None:
+    """Publish observed frame sizes without a changed controller snapshot."""
+    entry, _ = await _async_setup_entry(hass, idle_snapshot)
+    client = entry.runtime_data.client
+    resolution_id = _entity_id(hass, "select", f"{SERIAL}_camera_resolution")
+    assert _state(hass, resolution_id).state == STATE_UNKNOWN
+    fetch = AsyncMock(return_value=idle_snapshot)
+
+    with patch.object(client, "async_fetch_snapshot", fetch):
+        client.observe_camera_frame(_jpeg_header(640, 480))
+        await hass.async_block_till_done()
+        assert _state(hass, resolution_id).state == "640x480"
+        fetch.assert_not_awaited()
+
+        await entry.runtime_data.coordinator.async_refresh()
+        assert _state(hass, resolution_id).state == "640x480"
+        client.observe_camera_frame(_jpeg_header(320, 240))
+        await hass.async_block_till_done()
+        assert _state(hass, resolution_id).state == "320x240"
+        assert fetch.await_count == 1
+
+    with patch.object(client, "async_close", AsyncMock()) as close:
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        client.observe_camera_frame(_jpeg_header(640, 480))
+        await hass.async_block_till_done()
+        assert _state(hass, resolution_id).state == STATE_UNAVAILABLE
+    close.assert_awaited_once_with()
+    await client.async_close()
+
+
+def _jpeg_header(width: int, height: int) -> bytes:
+    """Build a minimal baseline JPEG header for resolution feedback."""
+    return (
+        b"\xff\xd8\xff\xc0\x00\x11\x08"
+        + height.to_bytes(2, "big")
+        + width.to_bytes(2, "big")
+        + b"\x03\x01\x11\x00\x02\x11\x00\x03\x11\x00\xff\xd9"
+    )
 
 
 async def test_camera_mjpeg_stream_adapter(

@@ -41,6 +41,15 @@ class MakeraZ1CameraResolution(MakeraZ1Entity, SelectEntity):
         """Initialize the selector."""
         super().__init__(coordinator, "camera_resolution")
 
+    async def async_added_to_hass(self) -> None:
+        """Track camera feedback independently of controller polling."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.client.add_camera_resolution_listener(
+                self.async_write_ha_state
+            )
+        )
+
     @property
     def current_option(self) -> str | None:
         """Return the observed or most recently confirmed frame size."""
