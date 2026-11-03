@@ -6,5 +6,8 @@ updates:
       interval: monthly
   - package-ecosystem: pip
     directory: "/"
+    # This environment deliberately tracks the minimum supported HA release.
+    exclude-paths:
+      - "requirements_test_minimum.txt"
     schedule:
       interval: monthly

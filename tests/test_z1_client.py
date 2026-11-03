@@ -810,6 +810,37 @@ class MakeraZ1ClientTest(unittest.IsolatedAsyncioTestCase):
         client.observe_camera_frame(b"not-jpeg")
         self.assertIsNone(client.camera_resolution_option)
 
+    async def test_camera_resolution_listeners_only_receive_changes(self) -> None:
+        client = MakeraZ1Client("127.0.0.1")
+        listener = MagicMock()
+        other_listener = MagicMock()
+        remove = client.add_camera_resolution_listener(listener)
+        client.add_camera_resolution_listener(other_listener)
+
+        client.observe_camera_frame(b"not-jpeg")
+        listener.assert_not_called()
+        client.observe_camera_frame(_jpeg_with_dimensions(640, 480))
+        listener.assert_called_once_with()
+        other_listener.assert_called_once_with()
+        client.observe_camera_frame(_jpeg_with_dimensions(640, 480))
+        listener.assert_called_once_with()
+        client.observe_camera_frame(b"not-jpeg")
+        self.assertEqual(client.camera_resolution_option, "640x480")
+        listener.assert_called_once_with()
+
+        remove()
+        remove()
+        client.observe_camera_frame(_jpeg_with_dimensions(320, 240))
+        listener.assert_called_once_with()
+        self.assertEqual(other_listener.call_count, 2)
+        client.observe_camera_frame(_jpeg_with_dimensions(123, 456))
+        self.assertIsNone(client.camera_resolution_option)
+        self.assertEqual(other_listener.call_count, 3)
+
+        await client.async_close()
+        client.observe_camera_frame(_jpeg_with_dimensions(640, 480))
+        self.assertEqual(other_listener.call_count, 3)
+
 
 def _jpeg_with_dimensions(width: int, height: int) -> bytes:
     """Build a minimal JPEG header with a baseline SOF segment."""
