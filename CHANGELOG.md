@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.5
 
 - Updates the camera-resolution selector immediately when a new frame size is
   observed, even while controller telemetry is unchanged.
