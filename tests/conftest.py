@@ -21,9 +21,6 @@ from custom_components.hakera.z1 import (
     parse_status_packet,
 )
 
-pytest_plugins = "pytest_homeassistant_custom_component"
-
-
 if sys.platform == "win32":
     _real_socket = socket.socket
     _real_socketpair = socket.socketpair

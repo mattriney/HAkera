@@ -23,10 +23,11 @@ python -m pyright --pythonpath "$(which python)"
 python -m pytest --cov=custom_components.hakera --cov-report=term-missing --cov-fail-under=95
 ```
 
-The pinned framework tests Home Assistant `2026.10.4`. Type checking targets that
-version's public types. CI also runs the full runtime suite against the minimum
-supported Home Assistant `2026.8.3`, using `requirements_test_minimum.txt` in a
-separate environment. Keep both runtime checks passing when updating dependencies.
+The official `pytest-homeassistant` package pins Home Assistant `2026.11.0`.
+Type checking targets that version's public types. The minimum runtime job uses
+`requirements_test_minimum.txt` and the legacy test harness for Home Assistant
+`2026.8.3`. Install each harness in its own environment and keep both runtime
+checks passing when updating dependencies.
 
 Dependabot excludes the minimum-version requirements file; update that baseline
 deliberately when changing the supported minimum. Keep PyTurboJPEG aligned with

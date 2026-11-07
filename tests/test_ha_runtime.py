@@ -9,6 +9,7 @@ from dataclasses import replace
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
+from ha_test_helpers import MockConfigEntry
 from homeassistant.components import camera
 from homeassistant.components.diagnostics import REDACTED
 from homeassistant.components.fan import ATTR_PERCENTAGE, SERVICE_SET_PERCENTAGE
@@ -26,7 +27,6 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.update_coordinator import UpdateFailed
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.hakera.camera import MakeraZ1Camera
 from custom_components.hakera.const import DOMAIN
