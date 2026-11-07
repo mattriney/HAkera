@@ -6,10 +6,10 @@ from dataclasses import replace
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
+from ha_test_helpers import MockConfigEntry
 from homeassistant.const import CONF_HOST
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.update_coordinator import UpdateFailed
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.hakera.binary_sensor import (
     BINARY_SENSOR_DESCRIPTIONS,

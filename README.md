@@ -26,7 +26,7 @@ Live tested with:
 - Z1 firmware `1.1.2.0.1.13`
 - Home Assistant `2026.8.3`
 
-Automated integration tests cover Home Assistant `2026.8.3` and `2026.10.4`.
+Automated integration tests cover Home Assistant `2026.8.3` and `2026.11.0`.
 
 Other Z1 models and firmware versions may work but have not yet been verified.
 
@@ -44,15 +44,23 @@ Other Z1 models and firmware versions may work but have not yet been verified.
 
 ## Installation
 
-### HACS
+### Marketplace (Home Assistant 2026.11 and later)
 
-1. Open HACS and search for `HAkera`.
-2. If it is not yet in the default catalog, add
-   `https://github.com/mattriney/HAkera` as a custom repository of type
-   `Integration`.
-3. Install HAkera and restart Home Assistant.
-4. Go to `Settings -> Devices & services -> Add integration`.
-5. Search for `HAkera` and enter the Z1 hostname or IP address.
+1. Open **Settings → Marketplace** and search for **HAkera**.
+2. Select **Install** and follow the setup flow. Enter the Z1 hostname or IP
+   address.
+3. If you close the setup flow, open **Settings → Devices & services →
+   Add integration** and select **HAkera**.
+
+Home Assistant migrates existing HACS installations to Marketplace when you
+upgrade to 2026.11.
+
+### HACS (Home Assistant 2026.8.3 through 2026.10)
+
+1. Open HACS, search for **HAkera**, and install it.
+2. Restart Home Assistant.
+3. Open **Settings → Devices & services → Add integration**, select **HAkera**,
+   and enter the Z1 hostname or IP address.
 
 ### Manual
 

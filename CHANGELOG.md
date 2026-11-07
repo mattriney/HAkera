@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.6
+
+- Documents installation through Home Assistant Marketplace and through HACS on
+  earlier Home Assistant versions.
+- Tests Home Assistant `2026.11.0` with its official test harness and retains
+  the `2026.8.3` minimum.
+
 ## 0.5.5
 
 - Updates the camera-resolution selector immediately when a new frame size is
